@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>প্রো হাওলাত ট্র্যাকার | স্মার্টলি হিসাব রাখুন</title>
+    <title>হাওলাত ট্র্যাকার | স্মার্টলি হিসাব রাখুন</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@300;400;600;700&display=swap" rel="stylesheet">
     <style>
@@ -66,6 +66,18 @@
             <div>
                 <label class="block text-sm font-medium text-slate-700 mb-1">পাসওয়ার্ড</label>
                 <input type="password" id="auth-password" placeholder="******" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+            </div>
+            
+            <!-- Confirm Password Field (Only for Signup) -->
+            <div id="confirm-pass-container" class="hidden">
+                <label class="block text-sm font-medium text-slate-700 mb-1">পাসওয়ার্ড নিশ্চিত করুন</label>
+                <input type="password" id="auth-confirm-password" placeholder="******" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+            </div>
+
+            <!-- Remember Me Checkbox -->
+            <div class="flex items-center gap-2">
+                <input type="checkbox" id="remember-me" class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 cursor-pointer">
+                <label for="remember-me" class="text-sm text-slate-600 cursor-pointer">আমাকে মনে রাখুন (Remember Me)</label>
             </div>
             
             <button id="auth-submit-btn" onclick="handleAuth()" class="w-full bg-indigo-600 text-white font-bold py-3 rounded-xl hover:bg-indigo-700 transition shadow-lg shadow-indigo-200">লগইন</button>
@@ -167,7 +179,7 @@
         </div>
 
         <footer class="mt-16 pb-8 text-center text-slate-400 text-sm border-t border-slate-200 pt-8">
-            <p>© 2026 হাওলাত ট্র্যাকার • আপনার ডেটা ক্লাউডে সুরক্ষিত</p>
+            <p>© 2026 হাওলাত ট্র্যাকার প্রো • আপনার ডেটা ক্লাউডে সুরক্ষিত</p>
         </footer>
     </div>
 
@@ -190,11 +202,29 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, setPersistence, browserLocalPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, deleteDoc, collection, onSnapshot, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        const firebaseConfig = JSON.parse(__firebase_config);
-        const app = initializeApp(firebaseConfig);
+        /** * [TUTORIAL] আপনার ফায়ারবেস কনফিগ এখানে বসান 
+         * ১. Firebase Console-এ যান। 
+         * ২. একটি প্রোজেক্ট খুলুন। 
+         * ৩. Web App সিলেক্ট করে নিচের এই তথ্যগুলো সংগ্রহ করুন।
+         * ৪. __firebase_config এর বদলে নিচের অবজেক্টটি ব্যবহার করুন।
+         */
+        const myFirebaseConfig = {
+            apiKey: "AIzaSyBk5buYAl0QHNbRqMQPKXlHv-X-QGOjuoY", // আপনার API Key দিন
+            authDomain: "haulat-tracker.firebaseapp.com", // আপনার Auth Domain দিন
+            projectId: "haulat-tracker", // আপনার Project ID দিন
+            storageBucket: "haulat-tracker.firebasestorage.app",
+            messagingSenderId: "368847711188",
+            appId: "1:368847711188:web:930f5cd7fb4313a6290441"
+        };
+
+        // এই পরিবেশের জন্য অটোমেটিক কনফিগারেশন লোড করা হচ্ছে। 
+        // আপনি যখন GitHub-এ হোস্ট করবেন, তখন config হিসেবে myFirebaseConfig ব্যবহার করবেন।
+        const config = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : myFirebaseConfig;
+        
+        const app = initializeApp(config);
         const auth = getAuth(app);
         const db = getFirestore(app);
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'haulat-tracker-pro';
@@ -212,21 +242,37 @@
             document.getElementById('auth-submit-btn').innerText = isSignupMode ? 'সাইন আপ' : 'লগইন';
             document.getElementById('auth-toggle-text').innerText = isSignupMode ? 'অ্যাকাউন্ট আছে?' : 'অ্যাকাউন্ট নেই?';
             document.getElementById('auth-toggle-btn').innerText = isSignupMode ? 'লগইন করুন' : 'নতুন তৈরি করুন';
+            
+            // Toggle Confirm Password visibility
+            const confirmPass = document.getElementById('confirm-pass-container');
+            if (isSignupMode) confirmPass.classList.remove('hidden');
+            else confirmPass.classList.add('hidden');
         };
 
         // HANDLE LOGIN/SIGNUP
         window.handleAuth = async () => {
             const email = document.getElementById('auth-email').value;
             const pass = document.getElementById('auth-password').value;
+            const confirmPass = document.getElementById('auth-confirm-password').value;
+            const rememberMe = document.getElementById('remember-me').checked;
 
             if(!email || !pass) {
                 showToast("ইমেইল ও পাসওয়ার্ড দিন!");
                 return;
             }
 
+            if (isSignupMode && pass !== confirmPass) {
+                showToast("পাসওয়ার্ড দুটি মেলেনি!");
+                return;
+            }
+
             document.getElementById('loading').classList.remove('hidden');
 
             try {
+                // Set persistence based on "Remember Me"
+                const persistence = rememberMe ? browserLocalPersistence : browserSessionPersistence;
+                await setPersistence(auth, persistence);
+
                 if(isSignupMode) {
                     await createUserWithEmailAndPassword(auth, email, pass);
                     showToast("অ্যাকাউন্ট তৈরি সফল!");
@@ -240,6 +286,7 @@
                 if(error.code === 'auth/wrong-password') msg = "ভুল পাসওয়ার্ড!";
                 if(error.code === 'auth/user-not-found') msg = "ইউজার পাওয়া যায়নি!";
                 if(error.code === 'auth/email-already-in-use') msg = "ইমেইলটি ইতিমধ্যে ব্যবহৃত!";
+                if(error.code === 'auth/weak-password') msg = "পাসওয়ার্ডটি খুব দুর্বল!";
                 showToast(msg);
             } finally {
                 document.getElementById('loading').classList.add('hidden');
