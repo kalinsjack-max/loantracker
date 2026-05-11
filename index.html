@@ -26,15 +26,6 @@
         .dark .custom-shadow {
             box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
         }
-        .glass {
-            background: rgba(255, 255, 255, 0.7);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.3);
-        }
-        .dark .glass {
-            background: rgba(30, 41, 59, 0.7);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-        }
         .animate-in { animation: fadeIn 0.4s ease-out; }
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(12px); }
@@ -54,7 +45,7 @@
         .auth-active .auth-card { display: block; }
         .auth-active #main-app { display: none; }
         
-        /* PDF specific style to ensure clean capture */
+        /* PDF specific style */
         #pdf-template {
             width: 800px;
             padding: 40px;
@@ -63,6 +54,34 @@
             position: absolute;
             left: -9999px;
             top: -9999px;
+        }
+
+        /* Colorful Border Classes */
+        .colorful-border-b {
+            position: relative;
+        }
+        .colorful-border-b::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(to right, #6366f1, #a855f7, #ec4899);
+            border-radius: 2px;
+        }
+        .colorful-border-t {
+            position: relative;
+        }
+        .colorful-border-t::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(to right, #6366f1, #a855f7, #ec4899);
+            border-radius: 2px;
         }
     </style>
 </head>
@@ -117,8 +136,8 @@
 
     <!-- Main App Section -->
     <div id="main-app" class="max-w-6xl mx-auto hidden animate-in">
-        <!-- Header -->
-        <div class="flex flex-col md:flex-row justify-between items-center pb-8 mb-10 gap-6 border-b border-slate-200 dark:border-slate-800">
+        <!-- Colorful Header -->
+        <div class="flex flex-col md:flex-row justify-between items-center pb-8 mb-10 gap-6 colorful-border-b">
             <div class="flex items-center gap-5">
                 <div id="user-avatar-display" onclick="toggleAccountModal()" class="w-14 h-14 rounded-2xl bg-indigo-600 text-white cursor-pointer overflow-hidden flex items-center justify-center shadow-lg shadow-indigo-100 dark:shadow-none transition-transform hover:rotate-3">
                     <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
@@ -216,7 +235,8 @@
             </div>
         </div>
 
-        <footer class="mt-20 pb-12 text-center text-slate-400 text-sm border-t border-slate-200 dark:border-slate-800 pt-10">
+        <!-- Colorful Footer -->
+        <footer class="mt-20 pb-12 text-center text-slate-400 text-sm pt-10 colorful-border-t">
             <p class="font-medium tracking-wide">© 2026 হাওলাত ট্র্যাকার প্রো • আপনার ডেটা ক্লাউডে সুরক্ষিত</p>
             <p class="mt-3 font-bold text-slate-600 dark:text-slate-400 flex items-center justify-center gap-2">
                 <span class="w-10 h-px bg-slate-200 dark:bg-slate-800"></span>
@@ -589,7 +609,7 @@
             linkElement.click();
         };
 
-        // PDF Generation Feature (Beautiful & Detailed)
+        // PDF Generation
         window.generatePDFReport = async () => {
             if (haulats.length === 0) {
                 showToast("ডাউনলোড করার জন্য কোনো তথ্য নেই!");
