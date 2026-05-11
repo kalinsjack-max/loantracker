@@ -3,216 +3,383 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>হাওলাত ট্র্যাকার | আপনার টাকার হিসাব রাখুন</title>
+    <title>প্রো হাওলাত ট্র্যাকার | স্মার্টলি হিসাব রাখুন</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@300;400;600;700&display=swap" rel="stylesheet">
     <style>
         body {
             font-family: 'Hind Siliguri', sans-serif;
-            background-color: #f8fafc;
+            background-color: #f1f5f9;
         }
-        .card {
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        .custom-shadow {
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.02);
         }
-        .card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        .animate-in {
+            animation: fadeIn 0.3s ease-out;
         }
-        /* Custom scrollbar for a cleaner look */
-        ::-webkit-scrollbar {
-            width: 6px;
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
-        ::-webkit-scrollbar-track {
-            background: #f1f1f1;
+        .loading-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(255, 255, 255, 0.95);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
         }
-        ::-webkit-scrollbar-thumb {
-            background: #cbd5e1;
-            border-radius: 10px;
+        .auth-card {
+            display: none;
         }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #94a3b8;
+        .auth-active .auth-card {
+            display: block;
+        }
+        .auth-active #main-app {
+            display: none;
         }
     </style>
 </head>
-<body class="p-4 md:p-8">
+<body class="p-4 md:p-10 auth-active">
 
-    <div class="max-w-4xl mx-auto">
-        <!-- Top Notification Banner -->
-        <div id="summary-banner" class="mb-8 p-6 bg-red-600 text-white rounded-2xl shadow-xl flex flex-col md:flex-row justify-between items-center space-y-4 md:space-y-0">
+    <!-- Loading Screen -->
+    <div id="loading" class="loading-overlay">
+        <div class="text-center">
+            <div class="animate-spin rounded-full h-12 w-12 border-t-4 border-indigo-600 mx-auto mb-4"></div>
+            <p class="text-slate-600 font-medium">লোড হচ্ছে...</p>
+        </div>
+    </div>
+
+    <!-- Auth Section (Login/Signup) -->
+    <div id="auth-section" class="auth-card max-w-md mx-auto mt-10 md:mt-20 p-8 bg-white rounded-3xl custom-shadow animate-in">
+        <div class="text-center mb-8">
+            <h2 class="text-3xl font-bold text-slate-800" id="auth-title">লগইন করুন</h2>
+            <p class="text-slate-500 mt-2" id="auth-subtitle">আপনার হিসাব সুরক্ষিত রাখতে সাইন-ইন করুন</p>
+        </div>
+        
+        <div class="space-y-4">
             <div>
-                <p class="text-red-100 text-sm font-medium uppercase tracking-wider">মানুষ আমার কাছে যত টাকা পাবে</p>
-                <h1 class="text-4xl font-bold mt-1">৳ <span id="total-debt">0</span></h1>
+                <label class="block text-sm font-medium text-slate-700 mb-1">ইমেইল ঠিকানা</label>
+                <input type="email" id="auth-email" placeholder="example@mail.com" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none">
             </div>
-            <div class="bg-red-700 p-4 rounded-xl text-center min-w-[150px]">
-                <p class="text-red-100 text-xs uppercase tracking-wider">আমি মোট যত টাকা পাবো</p>
-                <p class="text-2xl font-semibold">৳ <span id="total-loan">0</span></p>
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">পাসওয়ার্ড</label>
+                <input type="password" id="auth-password" placeholder="******" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+            </div>
+            
+            <button id="auth-submit-btn" onclick="handleAuth()" class="w-full bg-indigo-600 text-white font-bold py-3 rounded-xl hover:bg-indigo-700 transition shadow-lg shadow-indigo-200">লগইন</button>
+            
+            <p class="text-center text-sm text-slate-500">
+                <span id="auth-toggle-text">অ্যাকাউন্ট নেই?</span> 
+                <button onclick="toggleAuthMode()" id="auth-toggle-btn" class="text-indigo-600 font-bold hover:underline ml-1">নতুন তৈরি করুন</button>
+            </p>
+        </div>
+    </div>
+
+    <!-- Main App Section -->
+    <div id="main-app" class="max-w-5xl mx-auto hidden">
+        <!-- Header -->
+        <div class="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
+            <div>
+                <h1 class="text-3xl font-bold text-slate-800">হাওলাত ট্র্যাকার <span class="text-indigo-600">PRO</span></h1>
+                <div class="flex items-center gap-2 mt-1">
+                    <p id="user-display" class="text-xs text-slate-500 font-medium"></p>
+                    <button onclick="logout()" class="text-xs text-red-500 hover:underline">লগআউট</button>
+                </div>
+            </div>
+            <div class="flex gap-2">
+                <button onclick="exportData()" class="bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-lg hover:bg-slate-50 flex items-center gap-2 transition">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                    এক্সপোর্ট
+                </button>
             </div>
         </div>
 
-        <!-- Input Section -->
-        <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 mb-8">
-            <h2 class="text-lg font-semibold mb-4 text-slate-800">নতুন লেনদেন যোগ করুন</h2>
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <input type="text" id="person-name" placeholder="বন্ধুর নাম" class="p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none">
-                <input type="number" id="amount" placeholder="টাকার পরিমাণ" class="p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none">
-                <select id="type" class="p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none">
-                    <option value="took">আমি নিয়েছি (আমি দেনাদার)</option>
-                    <option value="gave">আমি দিয়েছি (আমি পাওনাদার)</option>
-                </select>
-                <button onclick="addHaulat()" class="bg-indigo-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-indigo-700 transition-colors">
+        <!-- Dashboard Widgets -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div class="bg-red-500 text-white p-6 rounded-3xl custom-shadow">
+                <p class="text-red-100 text-sm font-medium uppercase tracking-wider mb-1">মোট দেনা (মানুষ পাবে)</p>
+                <h2 class="text-4xl font-bold">৳ <span id="total-debt">0</span></h2>
+            </div>
+            <div class="bg-emerald-500 text-white p-6 rounded-3xl custom-shadow">
+                <p class="text-emerald-100 text-sm font-medium uppercase tracking-wider mb-1">মোট পাওনা (আমি পাবো)</p>
+                <h2 class="text-4xl font-bold">৳ <span id="total-loan">0</span></h2>
+            </div>
+            <div class="bg-white p-6 rounded-3xl border border-slate-200 custom-shadow flex flex-col justify-center">
+                <p class="text-slate-400 text-sm font-medium uppercase tracking-wider mb-1">নিট ব্যালেন্স</p>
+                <h2 class="text-3xl font-bold text-slate-700" id="net-balance">৳ ০</h2>
+            </div>
+        </div>
+
+        <!-- Add Transaction -->
+        <div class="bg-white p-6 rounded-3xl border border-slate-200 custom-shadow mb-8">
+            <div class="flex flex-col md:flex-row gap-4 items-end">
+                <div class="flex-1 w-full">
+                    <label class="block text-sm font-medium text-slate-700 mb-1">বন্ধুর নাম</label>
+                    <input type="text" id="person-name" placeholder="যেমন: আবির হোসেন" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none transition">
+                </div>
+                <div class="flex-1 w-full">
+                    <label class="block text-sm font-medium text-slate-700 mb-1">টাকার পরিমাণ</label>
+                    <input type="number" id="amount" placeholder="৳ ০০.০০" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none transition">
+                </div>
+                <div class="flex-1 w-full">
+                    <label class="block text-sm font-medium text-slate-700 mb-1">লেনদেনের ধরন</label>
+                    <select id="type" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none transition">
+                        <option value="took">আমি নিয়েছি (দেনা)</option>
+                        <option value="gave">আমি দিয়েছি (পাওনা)</option>
+                    </select>
+                </div>
+                <button onclick="addHaulat()" class="w-full md:w-auto bg-indigo-600 text-white font-bold py-3 px-8 rounded-xl hover:bg-indigo-700 transition transform hover:scale-105 active:scale-95 shadow-lg shadow-indigo-200">
                     যোগ করুন
                 </button>
             </div>
-            <p id="msg-box" class="mt-3 text-sm hidden"></p>
         </div>
 
-        <!-- Lists Section -->
+        <!-- Search Bar -->
+        <div class="mb-6 relative">
+            <input type="text" id="searchInput" onkeyup="render()" placeholder="নাম দিয়ে খুঁজুন..." class="w-full p-4 pl-12 bg-white border border-slate-200 rounded-2xl custom-shadow focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            <svg class="absolute left-4 top-4 text-slate-400" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        </div>
+
         <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-            
-            <!-- People I Took Money From -->
-            <div>
-                <div class="flex items-center justify-between mb-4">
-                    <h3 class="text-xl font-bold text-slate-800">আমি যাদের কাছে দেনাদার</h3>
-                    <span class="bg-red-100 text-red-600 px-3 py-1 rounded-full text-xs font-bold uppercase" id="count-debt">০ জন</span>
+            <div class="space-y-4">
+                <div class="flex items-center justify-between px-2">
+                    <h3 class="text-xl font-bold text-slate-800 flex items-center gap-2">
+                        <span class="w-2 h-6 bg-red-500 rounded-full"></span>
+                        আমি যাদের কাছে দেনাদার
+                    </h3>
+                    <span id="count-debt" class="bg-red-100 text-red-600 text-xs font-bold px-3 py-1 rounded-full uppercase">০ জন</span>
                 </div>
-                <div id="debt-list" class="space-y-3">
-                    <!-- Cards will be injected here -->
-                </div>
+                <div id="debt-list" class="space-y-3"></div>
             </div>
 
-            <!-- People I Gave Money To -->
-            <div>
-                <div class="flex items-center justify-between mb-4">
-                    <h3 class="text-xl font-bold text-slate-800">আমার কাছে যারা দেনাদার</h3>
-                    <span class="bg-green-100 text-green-600 px-3 py-1 rounded-full text-xs font-bold uppercase" id="count-loan">০ জন</span>
+            <div class="space-y-4">
+                <div class="flex items-center justify-between px-2">
+                    <h3 class="text-xl font-bold text-slate-800 flex items-center gap-2">
+                        <span class="w-2 h-6 bg-emerald-500 rounded-full"></span>
+                        আমার কাছে যারা দেনাদার
+                    </h3>
+                    <span id="count-loan" class="bg-emerald-100 text-emerald-600 text-xs font-bold px-3 py-1 rounded-full uppercase">০ জন</span>
                 </div>
-                <div id="loan-list" class="space-y-3">
-                    <!-- Cards will be injected here -->
-                </div>
+                <div id="loan-list" class="space-y-3"></div>
             </div>
-
         </div>
 
-        <footer class="mt-12 text-center text-slate-400 text-sm">
-            <p>আপনার তথ্য আপনার ব্রাউজারেই সংরক্ষিত আছে।</p>
+        <footer class="mt-16 pb-8 text-center text-slate-400 text-sm border-t border-slate-200 pt-8">
+            <p>© 2026 হাওলাত ট্র্যাকার • আপনার ডেটা ক্লাউডে সুরক্ষিত</p>
         </footer>
     </div>
 
-    <script>
-        let haulats = JSON.parse(localStorage.getItem('haulats')) || [];
+    <!-- Delete Modal -->
+    <div id="delete-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] hidden items-center justify-center p-4">
+        <div class="bg-white rounded-3xl p-8 max-w-sm w-full custom-shadow animate-in">
+            <div class="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+            </div>
+            <h3 class="text-2xl font-bold text-slate-800 text-center mb-2">আপনি কি নিশ্চিত?</h3>
+            <p class="text-slate-500 text-center mb-8">এই রেকর্ডটি মুছে ফেললে আর ফিরে পাওয়া যাবে না।</p>
+            <div class="flex gap-3">
+                <button onclick="closeDeleteModal()" class="flex-1 py-3 px-4 bg-slate-100 text-slate-600 font-bold rounded-2xl hover:bg-slate-200 transition">না, থাক</button>
+                <button onclick="confirmDelete()" class="flex-1 py-3 px-4 bg-red-500 text-white font-bold rounded-2xl hover:bg-red-600 transition shadow-lg shadow-red-200">হ্যাঁ, মুছুন</button>
+            </div>
+        </div>
+    </div>
 
-        function save() {
-            localStorage.setItem('haulats', JSON.stringify(haulats));
-            render();
-        }
+    <div id="toast" class="fixed bottom-10 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white px-6 py-3 rounded-full shadow-2xl hidden z-50 transition-all"></div>
 
-        function showMessage(text, isError = false) {
-            const box = document.getElementById('msg-box');
-            box.innerText = text;
-            box.className = `mt-3 text-sm ${isError ? 'text-red-500' : 'text-green-500'}`;
-            box.classList.remove('hidden');
-            setTimeout(() => box.classList.add('hidden'), 3000);
-        }
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, deleteDoc, collection, onSnapshot, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        function addHaulat() {
-            const nameInput = document.getElementById('person-name');
-            const amountInput = document.getElementById('amount');
-            const typeInput = document.getElementById('type');
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'haulat-tracker-pro';
 
-            const name = nameInput.value.trim();
-            const amount = parseFloat(amountInput.value);
-            const type = typeInput.value;
+        let haulats = [];
+        let currentUser = null;
+        let deleteTargetId = null;
+        let isSignupMode = false;
 
-            if (!name || isNaN(amount) || amount <= 0) {
-                showMessage("দয়া করে সঠিক নাম এবং টাকার পরিমাণ লিখুন।", true);
+        // AUTH UI TOGGLE
+        window.toggleAuthMode = () => {
+            isSignupMode = !isSignupMode;
+            document.getElementById('auth-title').innerText = isSignupMode ? 'অ্যাকাউন্ট তৈরি করুন' : 'লগইন করুন';
+            document.getElementById('auth-subtitle').innerText = isSignupMode ? 'তথ্য দিয়ে নতুন অ্যাকাউন্ট খুলুন' : 'আপনার হিসাব সুরক্ষিত রাখতে সাইন-ইন করুন';
+            document.getElementById('auth-submit-btn').innerText = isSignupMode ? 'সাইন আপ' : 'লগইন';
+            document.getElementById('auth-toggle-text').innerText = isSignupMode ? 'অ্যাকাউন্ট আছে?' : 'অ্যাকাউন্ট নেই?';
+            document.getElementById('auth-toggle-btn').innerText = isSignupMode ? 'লগইন করুন' : 'নতুন তৈরি করুন';
+        };
+
+        // HANDLE LOGIN/SIGNUP
+        window.handleAuth = async () => {
+            const email = document.getElementById('auth-email').value;
+            const pass = document.getElementById('auth-password').value;
+
+            if(!email || !pass) {
+                showToast("ইমেইল ও পাসওয়ার্ড দিন!");
                 return;
             }
 
-            // Check if person already exists in this category
-            const existingIndex = haulats.findIndex(h => h.name.toLowerCase() === name.toLowerCase() && h.type === type);
+            document.getElementById('loading').classList.remove('hidden');
 
-            if (existingIndex > -1) {
-                // Update existing record
-                haulats[existingIndex].amount += amount;
-                showMessage(`${haulats[existingIndex].name} এর মোট হিসেবে ৳${amount} যোগ করা হয়েছে।`);
+            try {
+                if(isSignupMode) {
+                    await createUserWithEmailAndPassword(auth, email, pass);
+                    showToast("অ্যাকাউন্ট তৈরি সফল!");
+                } else {
+                    await signInWithEmailAndPassword(auth, email, pass);
+                    showToast("লগইন সফল!");
+                }
+            } catch (error) {
+                console.error(error);
+                let msg = "ত্রুটি ঘটেছে!";
+                if(error.code === 'auth/wrong-password') msg = "ভুল পাসওয়ার্ড!";
+                if(error.code === 'auth/user-not-found') msg = "ইউজার পাওয়া যায়নি!";
+                if(error.code === 'auth/email-already-in-use') msg = "ইমেইলটি ইতিমধ্যে ব্যবহৃত!";
+                showToast(msg);
+            } finally {
+                document.getElementById('loading').classList.add('hidden');
+            }
+        };
+
+        window.logout = () => {
+            signOut(auth).then(() => {
+                window.location.reload();
+            });
+        };
+
+        onAuthStateChanged(auth, (user) => {
+            document.getElementById('loading').classList.add('hidden');
+            if (user) {
+                currentUser = user;
+                document.body.classList.remove('auth-active');
+                document.getElementById('main-app').classList.remove('hidden');
+                document.getElementById('user-display').innerText = user.email;
+                setupFirestoreListener(user.uid);
             } else {
-                // Add new record
-                haulats.push({
-                    id: Date.now(),
-                    name: name,
-                    amount: amount,
-                    type: type
-                });
-                showMessage(`${name} এর জন্য নতুন রেকর্ড তৈরি করা হয়েছে।`);
+                document.body.classList.add('auth-active');
+                document.getElementById('main-app').classList.add('hidden');
+            }
+        });
+
+        const setupFirestoreListener = (userId) => {
+            const haulatsRef = collection(db, 'artifacts', appId, 'users', userId, 'haulats');
+            onSnapshot(query(haulatsRef), (snapshot) => {
+                haulats = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                render();
+            }, (error) => {
+                showToast("ডেটা কানেকশন ত্রুটি!");
+            });
+        };
+
+        window.showToast = (text) => {
+            const toast = document.getElementById('toast');
+            toast.innerText = text;
+            toast.classList.remove('hidden');
+            setTimeout(() => toast.classList.add('hidden'), 3000);
+        };
+
+        window.addHaulat = async () => {
+            if (!currentUser) return;
+            const name = document.getElementById('person-name').value.trim();
+            const amount = parseFloat(document.getElementById('amount').value);
+            const type = document.getElementById('type').value;
+
+            if (!name || isNaN(amount) || amount <= 0) {
+                showToast("সঠিক তথ্য দিন!");
+                return;
             }
 
-            nameInput.value = '';
-            amountInput.value = '';
-            save();
-        }
+            const existing = haulats.find(h => h.name.toLowerCase() === name.toLowerCase() && h.type === type);
+            const docId = existing ? existing.id : Date.now().toString();
+            const finalAmount = existing ? existing.amount + amount : amount;
 
-        function deleteHaulat(id) {
-            haulats = haulats.filter(h => h.id !== id);
-            save();
-        }
+            try {
+                const docRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'haulats', docId);
+                await setDoc(docRef, {
+                    name, amount: finalAmount, type,
+                    date: new Date().toLocaleString('bn-BD')
+                });
+                showToast("হিসাব আপডেট হয়েছে!");
+                document.getElementById('person-name').value = '';
+                document.getElementById('amount').value = '';
+            } catch (e) {
+                showToast("সেভ ব্যর্থ!");
+            }
+        };
 
-        function render() {
+        window.deleteWithConfirm = (id) => {
+            deleteTargetId = id;
+            document.getElementById('delete-modal').classList.remove('hidden');
+            document.getElementById('delete-modal').classList.add('flex');
+        };
+
+        window.closeDeleteModal = () => {
+            document.getElementById('delete-modal').classList.add('hidden');
+            document.getElementById('delete-modal').classList.remove('flex');
+            deleteTargetId = null;
+        };
+
+        window.confirmDelete = async () => {
+            if (deleteTargetId && currentUser) {
+                try {
+                    await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'haulats', deleteTargetId));
+                    showToast("রেকর্ড মুছে গেছে");
+                    closeDeleteModal();
+                } catch (e) { showToast("ত্রুটি!"); }
+            }
+        };
+
+        window.render = () => {
             const debtList = document.getElementById('debt-list');
             const loanList = document.getElementById('loan-list');
-            const totalDebtEl = document.getElementById('total-debt');
-            const totalLoanEl = document.getElementById('total-loan');
-            const countDebtEl = document.getElementById('count-debt');
-            const countLoanEl = document.getElementById('count-loan');
+            const term = document.getElementById('searchInput').value.toLowerCase();
+            
+            debtList.innerHTML = ''; loanList.innerHTML = '';
+            let tDebt = 0, tLoan = 0, dCount = 0, lCount = 0;
 
-            debtList.innerHTML = '';
-            loanList.innerHTML = '';
-
-            let totalDebt = 0;
-            let totalLoan = 0;
-            let debtCount = 0;
-            let loanCount = 0;
-
-            haulats.forEach(h => {
+            haulats.filter(h => h.name.toLowerCase().includes(term)).forEach(h => {
                 const card = document.createElement('div');
-                card.className = "card bg-white p-4 rounded-xl border border-slate-200 flex justify-between items-center";
+                card.className = "animate-in bg-white p-5 rounded-2xl border border-slate-200 flex justify-between items-center custom-shadow";
                 card.innerHTML = `
-                    <div>
-                        <p class="font-bold text-slate-800">${h.name}</p>
-                        <p class="text-indigo-600 font-semibold">৳ ${h.amount}</p>
+                    <div class="flex items-center gap-4">
+                        <div class="w-10 h-10 rounded-full flex items-center justify-center font-bold text-white ${h.type === 'took' ? 'bg-red-400' : 'bg-emerald-400'}">
+                            ${h.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                            <p class="font-bold text-slate-800 text-lg leading-tight">${h.name}</p>
+                            <p class="text-xs text-slate-400">${h.date}</p>
+                        </div>
                     </div>
-                    <button onclick="deleteHaulat(${h.id})" class="text-slate-400 hover:text-red-500 transition-colors p-2" title="রেকর্ড মুছুন">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
-                    </button>
+                    <div class="flex items-center gap-4">
+                        <p class="text-xl font-bold ${h.type === 'took' ? 'text-red-500' : 'text-emerald-600'}">৳ ${h.amount.toLocaleString('bn-BD')}</p>
+                        <button onclick="deleteWithConfirm('${h.id}')" class="text-slate-300 hover:text-red-500 transition-colors p-2 bg-slate-50 rounded-lg">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+                        </button>
+                    </div>
                 `;
 
-                if (h.type === 'took') {
-                    debtList.appendChild(card);
-                    totalDebt += h.amount;
-                    debtCount++;
-                } else {
-                    loanList.appendChild(card);
-                    totalLoan += h.amount;
-                    loanCount++;
-                }
+                if (h.type === 'took') { debtList.appendChild(card); tDebt += h.amount; dCount++; }
+                else { loanList.appendChild(card); tLoan += h.amount; lCount++; }
             });
 
-            // Update UI Counters
-            totalDebtEl.innerText = totalDebt.toLocaleString('bn-BD');
-            totalLoanEl.innerText = totalLoan.toLocaleString('bn-BD');
-            countDebtEl.innerText = `${debtCount.toLocaleString('bn-BD')} জন`;
-            countLoanEl.innerText = `${loanCount.toLocaleString('bn-BD')} জন`;
+            document.getElementById('total-debt').innerText = tDebt.toLocaleString('bn-BD');
+            document.getElementById('total-loan').innerText = tLoan.toLocaleString('bn-BD');
+            document.getElementById('count-debt').innerText = `${dCount.toLocaleString('bn-BD')} জন`;
+            document.getElementById('count-loan').innerText = `${lCount.toLocaleString('bn-BD')} জন`;
+            
+            const net = tLoan - tDebt;
+            const netEl = document.getElementById('net-balance');
+            netEl.innerText = `৳ ${Math.abs(net).toLocaleString('bn-BD')} ${net >= 0 ? '(উদ্বৃত্ত)' : '(ঘাটতি)'}`;
+            netEl.className = `text-3xl font-bold ${net >= 0 ? 'text-emerald-600' : 'text-red-600'}`;
 
-            // Empty states
-            if (debtCount === 0) {
-                debtList.innerHTML = `<p class="text-slate-400 text-sm italic">কোন দেনার রেকর্ড নেই।</p>`;
-            }
-            if (loanCount === 0) {
-                loanList.innerHTML = `<p class="text-slate-400 text-sm italic">কোন পাওনার রেকর্ড নেই।</p>`;
-            }
-        }
-
-        // Initial render
-        render();
+            if (!debtList.children.length) debtList.innerHTML = `<p class="text-slate-400 text-center py-10 italic">কোন তথ্য নেই</p>`;
+            if (!loanList.children.length) loanList.innerHTML = `<p class="text-slate-400 text-center py-10 italic">কোন তথ্য নেই</p>`;
+        };
     </script>
 </body>
 </html>
