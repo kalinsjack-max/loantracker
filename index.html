@@ -199,6 +199,7 @@
 
         <footer class="mt-16 pb-8 text-center text-slate-400 text-sm border-t border-slate-200 dark:border-slate-700 pt-8">
             <p>© 2026 হাওলাত ট্র্যাকার প্রো • আপনার ডেটা ক্লাউডে সুরক্ষিত</p>
+            <p class="mt-2 font-medium">Developed By : Aishorjo</p>
         </footer>
     </div>
 
@@ -373,22 +374,28 @@
                 const avatar = document.getElementById('user-avatar-display');
                 if (currentUser.photoURL) {
                     avatar.innerHTML = `<img src="${currentUser.photoURL}" class="w-full h-full object-cover">`;
+                } else {
+                    avatar.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="text-indigo-500" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>`;
                 }
             }
         }
 
-        // AUTH UI TOGGLE
+        // AUTH UI TOGGLE (Fixed)
         window.toggleAuthMode = () => {
             isSignupMode = !isSignupMode;
             document.getElementById('auth-title').innerText = isSignupMode ? 'অ্যাকাউন্ট তৈরি করুন' : 'লগইন করুন';
+            document.getElementById('auth-subtitle').innerText = isSignupMode ? 'তথ্য দিয়ে নতুন অ্যাকাউন্ট খুলুন' : 'আপনার হিসাব সুরক্ষিত রাখতে সাইন-ইন করুন';
             document.getElementById('auth-submit-btn').innerText = isSignupMode ? 'সাইন আপ' : 'লগইন';
+            document.getElementById('auth-toggle-text').innerText = isSignupMode ? 'অ্যাকাউন্ট আছে?' : 'অ্যাকাউন্ট নেই?';
+            document.getElementById('auth-toggle-btn').innerText = isSignupMode ? 'লগইন করুন' : 'নতুন তৈরি করুন';
+            
             const confirmPass = document.getElementById('confirm-pass-container');
             confirmPass.classList.toggle('hidden', !isSignupMode);
         };
 
-        // HANDLE LOGIN/SIGNUP
+        // HANDLE LOGIN/SIGNUP (Improved)
         window.handleAuth = async () => {
-            const email = document.getElementById('auth-email').value;
+            const email = document.getElementById('auth-email').value.trim();
             const pass = document.getElementById('auth-password').value;
             const confirmPass = document.getElementById('auth-confirm-password').value;
             const rememberMe = document.getElementById('remember-me').checked;
@@ -398,9 +405,15 @@
                 return;
             }
 
-            if (isSignupMode && pass !== confirmPass) {
-                showToast("পাসওয়ার্ড দুটি মেলেনি!");
-                return;
+            if (isSignupMode) {
+                if (pass.length < 6) {
+                    showToast("পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে!");
+                    return;
+                }
+                if (pass !== confirmPass) {
+                    showToast("পাসওয়ার্ড দুটি মেলেনি!");
+                    return;
+                }
             }
 
             document.getElementById('loading').classList.remove('hidden');
@@ -417,7 +430,13 @@
                     showToast("লগইন সফল!");
                 }
             } catch (error) {
-                showToast("ত্রুটি: " + error.code);
+                console.error(error);
+                let msg = "ত্রুটি ঘটেছে!";
+                if(error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') msg = "ইমেইল বা পাসওয়ার্ড ভুল!";
+                if(error.code === 'auth/user-not-found') msg = "ইউজার পাওয়া যায়নি!";
+                if(error.code === 'auth/email-already-in-use') msg = "ইমেইলটি ইতিমধ্যে ব্যবহৃত!";
+                if(error.code === 'auth/invalid-email') msg = "সঠিক ইমেইল ঠিকানা দিন!";
+                showToast(msg);
             } finally {
                 document.getElementById('loading').classList.add('hidden');
             }
@@ -439,6 +458,7 @@
                 setupFirestoreListener(user.uid);
                 updateThemeIcon();
             } else {
+                currentUser = null;
                 document.body.classList.add('auth-active');
                 document.getElementById('main-app').classList.add('hidden');
             }
@@ -449,6 +469,9 @@
             onSnapshot(query(haulatsRef), (snapshot) => {
                 haulats = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 render();
+            }, (error) => {
+                console.error(error);
+                showToast("ডেটা কানেকশন ত্রুটি!");
             });
         };
 
