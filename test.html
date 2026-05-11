@@ -361,7 +361,7 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, setPersistence, browserLocalPersistence, browserSessionPersistence, updateProfile, updatePassword, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, setPersistence, browserLocalPersistence, browserSessionPersistence, updateProfile, updatePassword, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, deleteDoc, collection, onSnapshot, query, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         const myFirebaseConfig = {
@@ -400,8 +400,7 @@
             resultsDiv.innerHTML = '<p class="text-center py-4 text-slate-400 animate-pulse">খুঁজছি...</p>';
 
             try {
-                // Rule: Fetch all from public collection to filter in JS
-                // Note: We need some auth to read Firestore even for guests in this env
+                // For non-logged in users searching, we sign in anonymously to satisfy Firestore
                 if(!auth.currentUser) {
                     await signInAnonymously(auth);
                 }
@@ -409,10 +408,10 @@
                 const publicRef = collection(db, 'artifacts', appId, 'public', 'data', 'all_transactions');
                 const snapshot = await getDocs(publicRef);
                 
-                // Manual filtering (Rule 2)
+                // Manual filtering in memory
                 const items = snapshot.docs
                     .map(d => d.data())
-                    .filter(h => h.name.toLowerCase() === nameInput.toLowerCase() && h.type === 'took');
+                    .filter(h => h.name.toLowerCase() === nameInput.toLowerCase());
 
                 resultsDiv.innerHTML = '';
                 if (items.length === 0) {
@@ -423,11 +422,25 @@
                 items.forEach(h => {
                     const itemDiv = document.createElement('div');
                     itemDiv.className = "p-4 bg-white dark:bg-slate-700 rounded-2xl border border-slate-200 dark:border-slate-600 shadow-sm animate-in";
+                    
+                    let statusText = "";
+                    let amountColor = "";
+                    
+                    if (h.type === 'took') {
+                        // The owner TOOK from searcher, so Owner owes Searcher
+                        statusText = `${h.ownerName} আপনাকে দেবে`;
+                        amountColor = "text-emerald-500";
+                    } else {
+                        // The owner GAVE to searcher, so Searcher owes Owner
+                        statusText = `আপনি ${h.ownerName} কে দেবেন`;
+                        amountColor = "text-rose-500";
+                    }
+
                     itemDiv.innerHTML = `
                         <div class="flex justify-between items-center">
                             <div>
-                                <p class="text-[10px] uppercase font-black text-slate-400">${h.ownerName} আপনাকে দেবে</p>
-                                <p class="text-xl font-black text-emerald-500">৳ ${h.amount.toLocaleString('bn-BD')}</p>
+                                <p class="text-[10px] uppercase font-black text-slate-400">${statusText}</p>
+                                <p class="text-xl font-black ${amountColor}">৳ ${h.amount.toLocaleString('bn-BD')}</p>
                             </div>
                             <div class="text-right">
                                 <p class="text-[10px] text-slate-400 font-bold">${h.date}</p>
@@ -437,10 +450,13 @@
                     resultsDiv.appendChild(itemDiv);
                 });
 
-                const total = items.reduce((acc, curr) => acc + curr.amount, 0);
+                const netBalance = items.reduce((acc, curr) => {
+                    return curr.type === 'took' ? acc + curr.amount : acc - curr.amount;
+                }, 0);
+
                 const summaryDiv = document.createElement('div');
                 summaryDiv.className = "mt-4 p-4 bg-slate-800 text-white rounded-2xl text-center font-black";
-                summaryDiv.innerHTML = `মোট পাওনা: ৳ ${total.toLocaleString('bn-BD')}`;
+                summaryDiv.innerHTML = `মোট পাওনা (নিট): ৳ ${Math.abs(netBalance).toLocaleString('bn-BD')} ${netBalance >= 0 ? '(পাবেন)' : '(দেবেন)'}`;
                 resultsDiv.appendChild(summaryDiv);
 
             } catch (e) {
@@ -513,7 +529,7 @@
         };
 
         function updateUIUserInfo() {
-            if (currentUser) {
+            if (currentUser && !currentUser.isAnonymous) {
                 const name = currentUser.displayName || currentUser.email.split('@')[0];
                 document.getElementById('user-display').innerText = `${name} (${currentUser.email})`;
                 const avatar = document.getElementById('user-avatar-display');
@@ -594,7 +610,8 @@
 
         onAuthStateChanged(auth, (user) => {
             document.getElementById('loading').classList.add('hidden');
-            if (user) {
+            // Distinguish between real users and anonymous guests
+            if (user && !user.isAnonymous) {
                 currentUser = user;
                 document.body.classList.remove('auth-active');
                 document.getElementById('main-app').classList.remove('hidden');
@@ -602,7 +619,8 @@
                 setupFirestoreListener(user.uid);
                 updateThemeIcon();
             } else {
-                currentUser = null;
+                // Keep the anonymous user info in currentUser for queries, but stay on auth screen
+                currentUser = user;
                 document.body.classList.add('auth-active');
                 document.getElementById('main-app').classList.add('hidden');
             }
@@ -626,7 +644,7 @@
         };
 
         window.addHaulat = async () => {
-            if (!currentUser) return;
+            if (!currentUser || currentUser.isAnonymous) return;
             const name = document.getElementById('person-name').value.trim();
             const amount = parseFloat(document.getElementById('amount').value);
             const type = document.getElementById('type').value;
@@ -643,15 +661,14 @@
             const ownerName = currentUser.displayName || currentUser.email.split('@')[0];
 
             try {
-                // Save to private user data
+                // Private user data
                 const docRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'haulats', docId);
                 await setDoc(docRef, {
                     name, amount: finalAmount, type,
                     date: dateStr
                 });
 
-                // Rule 1: Save to public collection for the guest search feature
-                // Unique ID based on owner and name ensures we update the same entry
+                // Public search data
                 const publicId = `${currentUser.uid}_${name.toLowerCase().replace(/\s/g, '_')}_${type}`;
                 const publicRef = doc(db, 'artifacts', appId, 'public', 'data', 'all_transactions', publicId);
                 await setDoc(publicRef, {
@@ -687,7 +704,6 @@
                     const item = haulats.find(h => h.id === deleteTargetId);
                     await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'haulats', deleteTargetId));
                     
-                    // Also delete from public collection
                     if(item) {
                         const publicId = `${currentUser.uid}_${item.name.toLowerCase().replace(/\s/g, '_')}_${item.type}`;
                         await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'all_transactions', publicId));
