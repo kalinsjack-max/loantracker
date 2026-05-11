@@ -5,9 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>হাওলাত ট্র্যাকার | স্মার্টলি হিসাব রাখুন</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- PDF Generation Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@300;400;600;700&display=swap" rel="stylesheet">
     <script>
-        // Initialize Theme from LocalStorage before body renders to prevent flicker
         if (localStorage.getItem('theme') === 'dark') {
             document.documentElement.classList.add('dark');
         }
@@ -17,20 +19,25 @@
             font-family: 'Hind Siliguri', sans-serif;
             transition: background-color 0.3s ease;
         }
-        .dark body {
-            background-color: #0f172a;
-        }
+        .dark body { background-color: #0f172a; }
         .custom-shadow {
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.02);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.04), 0 4px 6px -2px rgba(0, 0, 0, 0.01);
         }
         .dark .custom-shadow {
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -2px rgba(0, 0, 0, 0.2);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
         }
-        .animate-in {
-            animation: fadeIn 0.3s ease-out;
+        .glass {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
         }
+        .dark .glass {
+            background: rgba(30, 41, 59, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .animate-in { animation: fadeIn 0.4s ease-out; }
         @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
+            from { opacity: 0; transform: translateY(12px); }
             to { opacity: 1; transform: translateY(0); }
         }
         .loading-overlay {
@@ -42,21 +49,24 @@
             justify-content: center;
             z-index: 100;
         }
-        .dark .loading-overlay {
-            background: rgba(15, 23, 42, 0.95);
-        }
-        .auth-card {
-            display: none;
-        }
-        .auth-active .auth-card {
-            display: block;
-        }
-        .auth-active #main-app {
-            display: none;
+        .dark .loading-overlay { background: rgba(15, 23, 42, 0.95); }
+        .auth-card { display: none; }
+        .auth-active .auth-card { display: block; }
+        .auth-active #main-app { display: none; }
+        
+        /* PDF specific style to ensure clean capture */
+        #pdf-template {
+            width: 800px;
+            padding: 40px;
+            background: white;
+            color: black;
+            position: absolute;
+            left: -9999px;
+            top: -9999px;
         }
     </style>
 </head>
-<body class="p-4 md:p-10 auth-active bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-100">
+<body class="p-4 md:p-8 auth-active bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 min-h-screen">
 
     <!-- Loading Screen -->
     <div id="loading" class="loading-overlay">
@@ -66,36 +76,39 @@
         </div>
     </div>
 
-    <!-- Auth Section (Login/Signup) -->
-    <div id="auth-section" class="auth-card max-w-md mx-auto mt-10 md:mt-20 p-8 bg-white dark:bg-slate-800 rounded-3xl custom-shadow animate-in">
+    <!-- Auth Section -->
+    <div id="auth-section" class="auth-card max-w-md mx-auto mt-10 md:mt-20 p-8 bg-white dark:bg-slate-800 rounded-[2rem] custom-shadow animate-in border border-slate-200 dark:border-slate-700">
         <div class="text-center mb-8">
+            <div class="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-indigo-200 dark:shadow-none">
+                <svg xmlns="http://www.w3.org/2000/svg" class="text-white" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+            </div>
             <h2 class="text-3xl font-bold text-slate-800 dark:text-white" id="auth-title">লগইন করুন</h2>
             <p class="text-slate-500 dark:text-slate-400 mt-2" id="auth-subtitle">আপনার হিসাব সুরক্ষিত রাখতে সাইন-ইন করুন</p>
         </div>
         
         <div class="space-y-4">
             <div>
-                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">ইমেইল ঠিকানা</label>
-                <input type="email" id="auth-email" placeholder="example@mail.com" class="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none dark:text-white">
+                <label class="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1 ml-1">ইমেইল ঠিকানা</label>
+                <input type="email" id="auth-email" placeholder="example@mail.com" class="w-full p-4 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-2xl focus:ring-2 focus:ring-indigo-500 focus:outline-none dark:text-white transition-all">
             </div>
             <div>
-                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">পাসওয়ার্ড</label>
-                <input type="password" id="auth-password" placeholder="******" class="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none dark:text-white">
+                <label class="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1 ml-1">পাসওয়ার্ড</label>
+                <input type="password" id="auth-password" placeholder="******" class="w-full p-4 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-2xl focus:ring-2 focus:ring-indigo-500 focus:outline-none dark:text-white transition-all">
             </div>
             
             <div id="confirm-pass-container" class="hidden">
-                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">পাসওয়ার্ড নিশ্চিত করুন</label>
-                <input type="password" id="auth-confirm-password" placeholder="******" class="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none dark:text-white">
+                <label class="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1 ml-1">পাসওয়ার্ড নিশ্চিত করুন</label>
+                <input type="password" id="auth-confirm-password" placeholder="******" class="w-full p-4 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-2xl focus:ring-2 focus:ring-indigo-500 focus:outline-none dark:text-white transition-all">
             </div>
 
-            <div class="flex items-center gap-2">
-                <input type="checkbox" id="remember-me" class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 cursor-pointer">
-                <label for="remember-me" class="text-sm text-slate-600 dark:text-slate-400 cursor-pointer">আমাকে মনে রাখুন (Remember Me)</label>
+            <div class="flex items-center gap-2 py-2">
+                <input type="checkbox" id="remember-me" class="w-5 h-5 text-indigo-600 border-slate-300 rounded-lg focus:ring-indigo-500 cursor-pointer">
+                <label for="remember-me" class="text-sm text-slate-600 dark:text-slate-400 cursor-pointer select-none">আমাকে মনে রাখুন</label>
             </div>
             
-            <button id="auth-submit-btn" onclick="handleAuth()" class="w-full bg-indigo-600 text-white font-bold py-3 rounded-xl hover:bg-indigo-700 transition shadow-lg shadow-indigo-200">লগইন</button>
+            <button id="auth-submit-btn" onclick="handleAuth()" class="w-full bg-indigo-600 text-white font-bold py-4 rounded-2xl hover:bg-indigo-700 transition transform hover:scale-[1.02] active:scale-95 shadow-xl shadow-indigo-200 dark:shadow-none">লগইন</button>
             
-            <p class="text-center text-sm text-slate-500 dark:text-slate-400">
+            <p class="text-center text-sm text-slate-500 mt-4">
                 <span id="auth-toggle-text">অ্যাকাউন্ট নেই?</span> 
                 <button onclick="toggleAuthMode()" id="auth-toggle-btn" class="text-indigo-600 font-bold hover:underline ml-1">নতুন তৈরি করুন</button>
             </p>
@@ -103,156 +116,160 @@
     </div>
 
     <!-- Main App Section -->
-    <div id="main-app" class="max-w-5xl mx-auto hidden">
+    <div id="main-app" class="max-w-6xl mx-auto hidden animate-in">
         <!-- Header -->
-        <div class="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
-            <div class="flex items-center gap-4">
-                <div id="user-avatar-display" onclick="toggleAccountModal()" class="w-12 h-12 rounded-full bg-indigo-100 dark:bg-indigo-900 border-2 border-white dark:border-slate-700 cursor-pointer overflow-hidden flex items-center justify-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="text-indigo-500" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+        <div class="flex flex-col md:flex-row justify-between items-center pb-8 mb-10 gap-6 border-b border-slate-200 dark:border-slate-800">
+            <div class="flex items-center gap-5">
+                <div id="user-avatar-display" onclick="toggleAccountModal()" class="w-14 h-14 rounded-2xl bg-indigo-600 text-white cursor-pointer overflow-hidden flex items-center justify-center shadow-lg shadow-indigo-100 dark:shadow-none transition-transform hover:rotate-3">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
                 </div>
                 <div>
-                    <h1 class="text-3xl font-bold text-slate-800 dark:text-white">হাওলাত ট্র্যাকার <span class="text-indigo-600">PRO</span></h1>
-                    <p id="user-display" class="text-xs text-slate-500 dark:text-slate-400 font-medium"></p>
+                    <h1 class="text-3xl font-extrabold text-slate-800 dark:text-white tracking-tight">হাওলাত ট্র্যাকার <span class="text-indigo-600">PRO</span></h1>
+                    <p id="user-display" class="text-sm text-slate-500 dark:text-slate-400 font-medium opacity-80"></p>
                 </div>
             </div>
-            <div class="flex gap-2">
-                <button onclick="toggleAccountModal()" class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 px-4 py-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 transition">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-                    অ্যাকাউন্ট
-                </button>
-                <button onclick="exportData()" class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 px-4 py-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 transition">
+            <div class="flex flex-wrap justify-center gap-3">
+                <button onclick="generatePDFReport()" class="bg-indigo-600 text-white px-5 py-2.5 rounded-xl hover:bg-indigo-700 flex items-center gap-2 transition shadow-lg shadow-indigo-100 dark:shadow-none text-sm font-semibold">
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                    এক্সপোর্ট
+                    রিপোর্ট (PDF)
+                </button>
+                <button onclick="toggleAccountModal()" class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 px-5 py-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 transition text-sm font-semibold">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                    সেটিংস
                 </button>
             </div>
         </div>
 
         <!-- Dashboard Widgets -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            <div class="bg-red-500 text-white p-6 rounded-3xl custom-shadow">
-                <p class="text-red-100 text-sm font-medium uppercase tracking-wider mb-1">মোট দেনা (মানুষ পাবে)</p>
-                <h2 class="text-4xl font-bold">৳ <span id="total-debt">0</span></h2>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+            <div class="bg-gradient-to-br from-rose-500 to-rose-600 text-white p-7 rounded-[2.5rem] custom-shadow flex flex-col justify-between h-44">
+                <p class="text-rose-100 text-sm font-bold uppercase tracking-widest">মোট দেনা</p>
+                <h2 class="text-5xl font-black">৳ <span id="total-debt">0</span></h2>
             </div>
-            <div class="bg-emerald-500 text-white p-6 rounded-3xl custom-shadow">
-                <p class="text-emerald-100 text-sm font-medium uppercase tracking-wider mb-1">মোট পাওনা (আমি পাবো)</p>
-                <h2 class="text-4xl font-bold">৳ <span id="total-loan">0</span></h2>
+            <div class="bg-gradient-to-br from-emerald-500 to-emerald-600 text-white p-7 rounded-[2.5rem] custom-shadow flex flex-col justify-between h-44">
+                <p class="text-emerald-100 text-sm font-bold uppercase tracking-widest">মোট পাওনা</p>
+                <h2 class="text-5xl font-black">৳ <span id="total-loan">0</span></h2>
             </div>
-            <div class="bg-white dark:bg-slate-800 p-6 rounded-3xl border border-slate-200 dark:border-slate-700 custom-shadow flex flex-col justify-center">
-                <p class="text-slate-400 text-sm font-medium uppercase tracking-wider mb-1">নিট ব্যালেন্স</p>
-                <h2 class="text-3xl font-bold text-slate-700 dark:text-slate-100" id="net-balance">৳ ০</h2>
+            <div class="bg-white dark:bg-slate-800 p-7 rounded-[2.5rem] border border-slate-200 dark:border-slate-700 custom-shadow flex flex-col justify-between h-44">
+                <p class="text-slate-400 dark:text-slate-500 text-sm font-bold uppercase tracking-widest">নিট ব্যালেন্স</p>
+                <h2 class="text-4xl font-black text-slate-800 dark:text-white" id="net-balance">৳ ০</h2>
             </div>
         </div>
 
         <!-- Add Transaction -->
-        <div class="bg-white dark:bg-slate-800 p-6 rounded-3xl border border-slate-200 dark:border-slate-700 custom-shadow mb-8">
-            <div class="flex flex-col md:flex-row gap-4 items-end">
+        <div class="bg-white dark:bg-slate-800 p-8 rounded-[2.5rem] border border-slate-200 dark:border-slate-700 custom-shadow mb-10">
+            <h3 class="text-lg font-bold mb-6 flex items-center gap-2">
+                <span class="w-2 h-2 bg-indigo-600 rounded-full"></span>
+                নতুন লেনদেন যোগ করুন
+            </h3>
+            <div class="flex flex-col lg:flex-row gap-5 items-end">
                 <div class="flex-1 w-full">
-                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">বন্ধুর নাম</label>
-                    <input type="text" id="person-name" placeholder="যেমন: আবির হোসেন" class="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none dark:text-white">
+                    <label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-2 ml-1 uppercase">বন্ধুর নাম</label>
+                    <input type="text" id="person-name" placeholder="যেমন: আবির হোসেন" class="w-full p-4 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-2xl focus:ring-2 focus:ring-indigo-500 focus:outline-none dark:text-white transition-all">
                 </div>
                 <div class="flex-1 w-full">
-                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">টাকার পরিমাণ</label>
-                    <input type="number" id="amount" placeholder="৳ ০০.০০" class="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none dark:text-white">
+                    <label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-2 ml-1 uppercase">টাকার পরিমাণ</label>
+                    <input type="number" id="amount" placeholder="৳ ০০.০০" class="w-full p-4 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-2xl focus:ring-2 focus:ring-indigo-500 focus:outline-none dark:text-white transition-all">
                 </div>
                 <div class="flex-1 w-full">
-                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">লেনদেনের ধরন</label>
-                    <select id="type" class="w-full p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-none dark:text-white">
+                    <label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-2 ml-1 uppercase">ধরন</label>
+                    <select id="type" class="w-full p-4 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-2xl focus:ring-2 focus:ring-indigo-500 focus:outline-none dark:text-white transition-all">
                         <option value="took">আমি নিয়েছি (দেনা)</option>
                         <option value="gave">আমি দিয়েছি (পাওনা)</option>
                     </select>
                 </div>
-                <button onclick="addHaulat()" class="w-full md:w-auto bg-indigo-600 text-white font-bold py-3 px-8 rounded-xl hover:bg-indigo-700 transition transform hover:scale-105 active:scale-95 shadow-lg shadow-indigo-200">
+                <button onclick="addHaulat()" class="w-full lg:w-auto bg-slate-900 dark:bg-indigo-600 text-white font-bold py-4 px-10 rounded-2xl hover:opacity-90 transition transform hover:scale-[1.02] active:scale-95 shadow-xl shadow-slate-200 dark:shadow-none">
                     যোগ করুন
                 </button>
             </div>
         </div>
 
         <!-- Search Bar -->
-        <div class="mb-6 relative">
-            <input type="text" id="searchInput" onkeyup="render()" placeholder="নাম দিয়ে খুঁজুন..." class="w-full p-4 pl-12 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl custom-shadow focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white">
-            <svg class="absolute left-4 top-4 text-slate-400" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <div class="mb-10 relative">
+            <input type="text" id="searchInput" onkeyup="render()" placeholder="নাম দিয়ে খুঁজুন..." class="w-full p-5 pl-14 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-[2rem] custom-shadow focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white transition-all">
+            <svg class="absolute left-6 top-5 text-slate-400" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div class="space-y-4">
-                <div class="flex items-center justify-between px-2">
-                    <h3 class="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                        <span class="w-2 h-6 bg-red-500 rounded-full"></span>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-10">
+            <!-- Debtors -->
+            <div class="space-y-5">
+                <div class="flex items-center justify-between px-4">
+                    <h3 class="text-xl font-black text-slate-800 dark:text-white flex items-center gap-3">
+                        <span class="w-1.5 h-8 bg-rose-500 rounded-full"></span>
                         আমি যাদের কাছে দেনাদার
                     </h3>
-                    <span id="count-debt" class="bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400 text-xs font-bold px-3 py-1 rounded-full uppercase">০ জন</span>
+                    <span id="count-debt" class="bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400 text-xs font-black px-4 py-1.5 rounded-full uppercase tracking-widest">০ জন</span>
                 </div>
-                <div id="debt-list" class="space-y-3"></div>
+                <div id="debt-list" class="space-y-4"></div>
             </div>
 
-            <div class="space-y-4">
-                <div class="flex items-center justify-between px-2">
-                    <h3 class="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                        <span class="w-2 h-6 bg-emerald-500 rounded-full"></span>
+            <!-- Creditors -->
+            <div class="space-y-5">
+                <div class="flex items-center justify-between px-4">
+                    <h3 class="text-xl font-black text-slate-800 dark:text-white flex items-center gap-3">
+                        <span class="w-1.5 h-8 bg-emerald-500 rounded-full"></span>
                         আমার কাছে যারা দেনাদার
                     </h3>
-                    <span id="count-loan" class="bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400 text-xs font-bold px-3 py-1 rounded-full uppercase">০ জন</span>
+                    <span id="count-loan" class="bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400 text-xs font-black px-4 py-1.5 rounded-full uppercase tracking-widest">০ জন</span>
                 </div>
-                <div id="loan-list" class="space-y-3"></div>
+                <div id="loan-list" class="space-y-4"></div>
             </div>
         </div>
 
-        <footer class="mt-16 pb-8 text-center text-slate-400 text-sm border-t border-slate-200 dark:border-slate-700 pt-8">
-            <p>© 2026 হাওলাত ট্র্যাকার প্রো • আপনার ডেটা ক্লাউডে সুরক্ষিত</p>
+        <footer class="mt-20 pb-12 text-center text-slate-400 text-sm border-t border-slate-200 dark:border-slate-800 pt-10">
+            <p class="font-medium tracking-wide">© 2026 হাওলাত ট্র্যাকার প্রো • আপনার ডেটা ক্লাউডে সুরক্ষিত</p>
+            <p class="mt-3 font-bold text-slate-600 dark:text-slate-400 flex items-center justify-center gap-2">
+                <span class="w-10 h-px bg-slate-200 dark:bg-slate-800"></span>
+                Developed By : Aishorjo
+                <span class="w-10 h-px bg-slate-200 dark:bg-slate-800"></span>
+            </p>
         </footer>
     </div>
 
     <!-- Account Modal -->
     <div id="account-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] hidden items-center justify-center p-4">
-        <div class="bg-white dark:bg-slate-800 rounded-3xl p-6 md:p-8 max-w-lg w-full custom-shadow animate-in overflow-y-auto max-h-[90vh]">
-            <div class="flex justify-between items-center mb-6">
-                <h3 class="text-2xl font-bold text-slate-800 dark:text-white">অ্যাকাউন্ট সেটিংস</h3>
-                <button onclick="toggleAccountModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-white">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        <div class="bg-white dark:bg-slate-800 rounded-[2.5rem] p-8 max-w-lg w-full custom-shadow animate-in overflow-y-auto max-h-[90vh] border border-slate-200 dark:border-slate-700">
+            <div class="flex justify-between items-center mb-8">
+                <h3 class="text-2xl font-black text-slate-800 dark:text-white uppercase tracking-tight">অ্যাকাউন্ট সেটিংস</h3>
+                <button onclick="toggleAccountModal()" class="w-10 h-10 rounded-full bg-slate-50 dark:bg-slate-700 flex items-center justify-center text-slate-400 hover:text-rose-500 transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                 </button>
             </div>
 
-            <div class="space-y-6">
-                <!-- Theme Toggle -->
-                <div class="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-700 rounded-2xl">
+            <div class="space-y-8">
+                <div class="flex items-center justify-between p-5 bg-indigo-50 dark:bg-indigo-900/20 rounded-3xl border border-indigo-100 dark:border-indigo-900/30">
                     <div>
-                        <p class="font-bold text-slate-800 dark:text-white">থিম মোড</p>
-                        <p class="text-sm text-slate-500 dark:text-slate-400">লাইট অথবা ডার্ক থিম বেছে নিন</p>
+                        <p class="font-bold text-indigo-900 dark:text-indigo-300">ডার্ক মোড</p>
+                        <p class="text-xs text-indigo-600 dark:text-indigo-400">চোখের আরামের জন্য থিম পরিবর্তন করুন</p>
                     </div>
-                    <button onclick="toggleTheme()" id="theme-btn" class="p-3 bg-white dark:bg-slate-600 rounded-xl shadow-sm">
-                        <svg id="theme-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-indigo-600 dark:text-yellow-400"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+                    <button onclick="toggleTheme()" id="theme-btn" class="w-12 h-12 bg-white dark:bg-indigo-600 rounded-2xl shadow-sm flex items-center justify-center transition-transform hover:scale-110 active:scale-95">
+                        <svg id="theme-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-indigo-600 dark:text-white"></svg>
                     </button>
                 </div>
 
-                <!-- Update Name -->
-                <div class="space-y-2">
-                    <label class="text-sm font-medium text-slate-700 dark:text-slate-300">নাম পরিবর্তন করুন</label>
-                    <div class="flex gap-2">
-                        <input type="text" id="update-name-input" placeholder="আপনার নাম" class="flex-1 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl focus:outline-none dark:text-white">
-                        <button onclick="updateUserName()" class="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold">সেভ</button>
+                <div class="space-y-3">
+                    <label class="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase ml-1">নাম পরিবর্তন</label>
+                    <div class="flex gap-3">
+                        <input type="text" id="update-name-input" class="flex-1 p-4 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-2xl focus:outline-none dark:text-white">
+                        <button onclick="updateUserName()" class="bg-indigo-600 text-white px-6 rounded-2xl font-bold text-sm transition hover:opacity-90">সেভ</button>
                     </div>
                 </div>
 
-                <!-- Profile Image URL -->
-                <div class="space-y-2">
-                    <label class="text-sm font-medium text-slate-700 dark:text-slate-300">প্রোফাইল ছবির URL (যেমন: Gravatar)</label>
-                    <div class="flex gap-2">
-                        <input type="text" id="update-photo-input" placeholder="https://image-link.com" class="flex-1 p-3 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl focus:outline-none dark:text-white">
-                        <button onclick="updateUserPhoto()" class="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold">আপডেট</button>
+                <div class="space-y-3">
+                    <label class="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase ml-1">প্রোফাইল ছবি URL</label>
+                    <div class="flex gap-3">
+                        <input type="text" id="update-photo-input" class="flex-1 p-4 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-2xl focus:outline-none dark:text-white">
+                        <button onclick="updateUserPhoto()" class="bg-indigo-600 text-white px-6 rounded-2xl font-bold text-sm transition hover:opacity-90">আপডেট</button>
                     </div>
                 </div>
 
-                <!-- Password Change -->
-                <div class="space-y-2 p-4 bg-red-50 dark:bg-red-900/10 rounded-2xl border border-red-100 dark:border-red-900/20">
-                    <p class="font-bold text-red-600 mb-2">পাসওয়ার্ড পরিবর্তন</p>
-                    <input type="password" id="update-pass-input" placeholder="নতুন পাসওয়ার্ড" class="w-full p-3 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl focus:outline-none mb-2 dark:text-white">
-                    <button onclick="changePassword()" class="w-full bg-red-500 text-white py-2 rounded-xl font-bold">পাসওয়ার্ড সেট করুন</button>
+                <div class="p-6 bg-rose-50 dark:bg-rose-900/10 rounded-3xl border border-rose-100 dark:border-rose-900/20">
+                    <p class="font-bold text-rose-600 mb-4 uppercase text-xs tracking-widest">নিরাপত্তা</p>
+                    <input type="password" id="update-pass-input" placeholder="নতুন পাসওয়ার্ড" class="w-full p-4 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-2xl focus:outline-none mb-3 dark:text-white">
+                    <button onclick="changePassword()" class="w-full bg-rose-500 text-white py-3 rounded-2xl font-bold text-sm transition hover:bg-rose-600 shadow-lg shadow-rose-100 dark:shadow-none">পাসওয়ার্ড পরিবর্তন করুন</button>
                 </div>
 
-                <hr class="border-slate-200 dark:border-slate-700">
-
-                <!-- Logout Button -->
-                <button onclick="logout()" class="w-full flex items-center justify-center gap-2 py-3 bg-slate-100 dark:bg-slate-700 text-red-500 font-bold rounded-2xl hover:bg-slate-200 dark:hover:bg-slate-600 transition">
+                <button onclick="logout()" class="w-full flex items-center justify-center gap-3 py-4 bg-slate-100 dark:bg-slate-700 text-rose-600 dark:text-rose-400 font-black rounded-2xl hover:bg-rose-50 dark:hover:bg-rose-900/30 transition-all border border-transparent hover:border-rose-200">
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
                     লগআউট করুন
                 </button>
@@ -260,22 +277,56 @@
         </div>
     </div>
 
-    <!-- Delete Modal -->
-    <div id="delete-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] hidden items-center justify-center p-4">
-        <div class="bg-white dark:bg-slate-800 rounded-3xl p-8 max-w-sm w-full custom-shadow animate-in">
-            <div class="w-16 h-16 bg-red-100 dark:bg-red-900/30 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+    <!-- Hidden PDF Template -->
+    <div id="pdf-template">
+        <div style="border-bottom: 3px solid #4f46e5; padding-bottom: 20px; margin-bottom: 30px;">
+            <h1 style="font-size: 32px; font-weight: 900; color: #1e293b; margin: 0;">হাওলাত ট্র্যাকার রিপোর্ট</h1>
+            <p id="pdf-date" style="font-size: 14px; color: #64748b;"></p>
+            <p id="pdf-user" style="font-size: 14px; font-weight: bold; color: #4f46e5;"></p>
+        </div>
+        
+        <div style="display: flex; gap: 20px; margin-bottom: 40px;">
+            <div style="flex: 1; padding: 20px; background: #fff1f2; border-radius: 15px; border: 1px solid #fecdd3;">
+                <p style="font-size: 12px; color: #e11d48; font-weight: bold; margin: 0;">মোট দেনা</p>
+                <h2 id="pdf-total-debt" style="font-size: 24px; font-weight: 900; margin: 5px 0;"></h2>
             </div>
-            <h3 class="text-2xl font-bold text-slate-800 dark:text-white text-center mb-2">আপনি কি নিশ্চিত?</h3>
+            <div style="flex: 1; padding: 20px; background: #ecfdf5; border-radius: 15px; border: 1px solid #a7f3d0;">
+                <p style="font-size: 12px; color: #10b981; font-weight: bold; margin: 0;">মোট পাওনা</p>
+                <h2 id="pdf-total-loan" style="font-size: 24px; font-weight: 900; margin: 5px 0;"></h2>
+            </div>
+        </div>
+
+        <div style="margin-bottom: 30px;">
+            <h3 style="font-size: 18px; font-weight: bold; border-left: 5px solid #e11d48; padding-left: 10px; margin-bottom: 15px;">আমি যাদের কাছে দেনাদার</h3>
+            <div id="pdf-debt-list"></div>
+        </div>
+
+        <div style="margin-bottom: 30px;">
+            <h3 style="font-size: 18px; font-weight: bold; border-left: 5px solid #10b981; padding-left: 10px; margin-bottom: 15px;">আমার কাছে যারা দেনাদার</h3>
+            <div id="pdf-loan-list"></div>
+        </div>
+
+        <footer style="margin-top: 50px; text-align: center; font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; pt: 20px;">
+            Generated by Haulat Tracker Pro • Developed By : Aishorjo
+        </footer>
+    </div>
+
+    <!-- Modals (Delete confirmation) -->
+    <div id="delete-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[60] hidden items-center justify-center p-4">
+        <div class="bg-white dark:bg-slate-800 rounded-3xl p-8 max-w-sm w-full custom-shadow animate-in border border-slate-200 dark:border-slate-700">
+            <div class="w-20 h-20 bg-rose-100 dark:bg-rose-900/30 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-6">
+                <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+            </div>
+            <h3 class="text-2xl font-black text-slate-800 dark:text-white text-center mb-2">আপনি কি নিশ্চিত?</h3>
             <p class="text-slate-500 dark:text-slate-400 text-center mb-8">এই রেকর্ডটি মুছে ফেললে আর ফিরে পাওয়া যাবে না।</p>
             <div class="flex gap-3">
-                <button onclick="closeDeleteModal()" class="flex-1 py-3 px-4 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold rounded-2xl hover:bg-slate-200 transition">না, থাক</button>
-                <button onclick="confirmDelete()" class="flex-1 py-3 px-4 bg-red-500 text-white font-bold rounded-2xl hover:bg-red-600 transition shadow-lg shadow-red-200">হ্যাঁ, মুছুন</button>
+                <button onclick="closeDeleteModal()" class="flex-1 py-4 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold rounded-2xl hover:bg-slate-200 transition">না</button>
+                <button onclick="confirmDelete()" class="flex-1 py-4 bg-rose-500 text-white font-bold rounded-2xl hover:bg-rose-600 transition shadow-lg shadow-rose-200">হ্যাঁ, মুছুন</button>
             </div>
         </div>
     </div>
 
-    <div id="toast" class="fixed bottom-10 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white px-6 py-3 rounded-full shadow-2xl hidden z-50 transition-all"></div>
+    <div id="toast" class="fixed bottom-10 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white px-8 py-4 rounded-full shadow-2xl hidden z-50 transition-all font-bold"></div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
@@ -292,7 +343,6 @@
         };
 
         const config = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : myFirebaseConfig;
-        
         const app = initializeApp(config);
         const auth = getAuth(app);
         const db = getFirestore(app);
@@ -313,7 +363,7 @@
         function updateThemeIcon() {
             const icon = document.getElementById('theme-icon');
             if (document.documentElement.classList.contains('dark')) {
-                icon.innerHTML = '<path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1-8.313-12.454z"></path>';
+                icon.innerHTML = '<path d="M12 3c.132 0 .263 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1-8.313-12.454z"></path>';
             } else {
                 icon.innerHTML = '<circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>';
             }
@@ -372,14 +422,14 @@
                 document.getElementById('user-display').innerText = `${name} (${currentUser.email})`;
                 const avatar = document.getElementById('user-avatar-display');
                 if (currentUser.photoURL) {
-                    avatar.innerHTML = `<img src="${currentUser.photoURL}" class="w-full h-full object-cover">`;
+                    avatar.innerHTML = `<img src="${currentUser.photoURL}" class="w-full h-full object-cover transition hover:scale-110">`;
                 } else {
-                    avatar.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="text-indigo-500" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>`;
+                    avatar.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>`;
                 }
             }
         }
 
-        // AUTH UI TOGGLE (Fixed)
+        // AUTH UI TOGGLE
         window.toggleAuthMode = () => {
             isSignupMode = !isSignupMode;
             document.getElementById('auth-title').innerText = isSignupMode ? 'অ্যাকাউন্ট তৈরি করুন' : 'লগইন করুন';
@@ -392,7 +442,6 @@
             confirmPass.classList.toggle('hidden', !isSignupMode);
         };
 
-        // HANDLE LOGIN/SIGNUP (Improved)
         window.handleAuth = async () => {
             const email = document.getElementById('auth-email').value.trim();
             const pass = document.getElementById('auth-password').value;
@@ -469,7 +518,6 @@
                 haulats = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 render();
             }, (error) => {
-                console.error(error);
                 showToast("ডেটা কানেকশন ত্রুটি!");
             });
         };
@@ -541,6 +589,67 @@
             linkElement.click();
         };
 
+        // PDF Generation Feature (Beautiful & Detailed)
+        window.generatePDFReport = async () => {
+            if (haulats.length === 0) {
+                showToast("ডাউনলোড করার জন্য কোনো তথ্য নেই!");
+                return;
+            }
+
+            const template = document.getElementById('pdf-template');
+            const totalDebt = document.getElementById('total-debt').innerText;
+            const totalLoan = document.getElementById('total-loan').innerText;
+            const userName = currentUser.displayName || currentUser.email;
+
+            document.getElementById('pdf-date').innerText = "তারিখ: " + new Date().toLocaleDateString('bn-BD');
+            document.getElementById('pdf-user').innerText = "ব্যবহারকারী: " + userName;
+            document.getElementById('pdf-total-debt').innerText = "৳ " + totalDebt;
+            document.getElementById('pdf-total-loan').innerText = "৳ " + totalLoan;
+
+            const pdfDebtList = document.getElementById('pdf-debt-list');
+            const pdfLoanList = document.getElementById('pdf-loan-list');
+            
+            pdfDebtList.innerHTML = '';
+            pdfLoanList.innerHTML = '';
+
+            const listStyle = "display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #f1f5f9; font-size: 14px;";
+
+            haulats.forEach(h => {
+                const item = document.createElement('div');
+                item.style = listStyle;
+                item.innerHTML = `<span><strong>${h.name}</strong></span> <span>৳ ${h.amount.toLocaleString('bn-BD')}</span>`;
+                
+                if (h.type === 'took') pdfDebtList.appendChild(item);
+                else pdfLoanList.appendChild(item);
+            });
+
+            if (!pdfDebtList.children.length) pdfDebtList.innerHTML = '<p style="color: #94a3b8; font-style: italic; font-size: 12px;">কোন তথ্য নেই</p>';
+            if (!pdfLoanList.children.length) pdfLoanList.innerHTML = '<p style="color: #94a3b8; font-style: italic; font-size: 12px;">কোন তথ্য নেই</p>';
+
+            showToast("PDF তৈরি হচ্ছে...");
+            
+            try {
+                const canvas = await html2canvas(template, {
+                    scale: 2,
+                    logging: false,
+                    useCORS: true
+                });
+                
+                const imgData = canvas.toDataURL('image/png');
+                const pdf = new jspdf.jsPDF('p', 'mm', 'a4');
+                const imgProps = pdf.getImageProperties(imgData);
+                const pdfWidth = pdf.internal.pageSize.getWidth();
+                const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+                
+                pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+                pdf.save(`Haulat_Report_${new Date().toLocaleDateString()}.pdf`);
+                showToast("ডাউনলোড সম্পন্ন হয়েছে!");
+            } catch (err) {
+                console.error(err);
+                showToast("PDF তৈরিতে সমস্যা হয়েছে!");
+            }
+        };
+
         window.render = () => {
             const debtList = document.getElementById('debt-list');
             const loanList = document.getElementById('loan-list');
@@ -551,21 +660,21 @@
 
             haulats.filter(h => h.name.toLowerCase().includes(term)).forEach(h => {
                 const card = document.createElement('div');
-                card.className = "animate-in bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 flex justify-between items-center custom-shadow";
+                card.className = "animate-in bg-white dark:bg-slate-800 p-5 rounded-[2rem] border border-slate-200 dark:border-slate-700 flex justify-between items-center custom-shadow group transition-all hover:border-indigo-200 dark:hover:border-indigo-900";
                 card.innerHTML = `
                     <div class="flex items-center gap-4">
-                        <div class="w-10 h-10 rounded-full flex items-center justify-center font-bold text-white ${h.type === 'took' ? 'bg-red-400' : 'bg-emerald-400'}">
+                        <div class="w-12 h-12 rounded-2xl flex items-center justify-center font-black text-white shadow-sm transition-transform group-hover:scale-110 ${h.type === 'took' ? 'bg-rose-400' : 'bg-emerald-400'}">
                             ${h.name.charAt(0).toUpperCase()}
                         </div>
                         <div>
                             <p class="font-bold text-slate-800 dark:text-white text-lg leading-tight">${h.name}</p>
-                            <p class="text-xs text-slate-400 dark:text-slate-500">${h.date}</p>
+                            <p class="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase mt-0.5">${h.date}</p>
                         </div>
                     </div>
-                    <div class="flex items-center gap-4">
-                        <p class="text-xl font-bold ${h.type === 'took' ? 'text-red-500' : 'text-emerald-600'}">৳ ${h.amount.toLocaleString('bn-BD')}</p>
-                        <button onclick="deleteWithConfirm('${h.id}')" class="text-slate-300 hover:text-red-500 transition-colors p-2 bg-slate-50 dark:bg-slate-700 rounded-lg">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+                    <div class="flex items-center gap-5">
+                        <p class="text-xl font-black ${h.type === 'took' ? 'text-rose-500' : 'text-emerald-500'}">৳ ${h.amount.toLocaleString('bn-BD')}</p>
+                        <button onclick="deleteWithConfirm('${h.id}')" class="text-slate-300 hover:text-rose-500 transition-colors p-2 bg-slate-50 dark:bg-slate-700 rounded-xl">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
                         </button>
                     </div>
                 `;
@@ -582,10 +691,10 @@
             const net = tLoan - tDebt;
             const netEl = document.getElementById('net-balance');
             netEl.innerText = `৳ ${Math.abs(net).toLocaleString('bn-BD')} ${net >= 0 ? '(উদ্বৃত্ত)' : '(ঘাটতি)'}`;
-            netEl.className = `text-3xl font-bold ${net >= 0 ? 'text-emerald-600' : 'text-red-600'}`;
+            netEl.className = `text-3xl font-black ${net >= 0 ? 'text-emerald-500' : 'text-rose-500'}`;
 
-            if (!debtList.children.length) debtList.innerHTML = `<p class="text-slate-400 text-center py-10 italic">কোন তথ্য নেই</p>`;
-            if (!loanList.children.length) loanList.innerHTML = `<p class="text-slate-400 text-center py-10 italic">কোন তথ্য নেই</p>`;
+            if (!debtList.children.length) debtList.innerHTML = `<p class="text-slate-400 text-center py-12 italic text-sm">কোন তথ্য নেই</p>`;
+            if (!loanList.children.length) loanList.innerHTML = `<p class="text-slate-400 text-center py-12 italic text-sm">কোন তথ্য নেই</p>`;
         };
     </script>
 </body>
