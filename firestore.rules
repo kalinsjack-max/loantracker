@@ -16,20 +16,98 @@ service cloud.firestore {
       allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
       allow update, delete: if signedIn() && resource.data.uid == request.auth.uid;
     }
+
     match /entries/{id} {
+      // ---- helpers ----
+      function oldE() { return resource.data; }
+      function newE() { return request.resource.data; }
+      function personal() { return resource.data.participants.size() == 1; }
+      function lenderOf() { return resource.data.type == 'lent' ? resource.data.creatorUid : resource.data.otherUid; }
+      function isLender() { return request.auth.uid == lenderOf(); }
+      function only(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
+      function lastIdx() { return resource.data.log.size(); }
+
       allow read: if signedIn() && request.auth.uid in resource.data.participants;
+
       allow create: if signedIn()
         && request.resource.data.creatorUid == request.auth.uid
-        && request.auth.uid in request.resource.data.participants;
+        && request.auth.uid in request.resource.data.participants
+        && request.resource.data.type in ['lent', 'borrowed']
+        && request.resource.data.amount is number && request.resource.data.amount > 0
+        && request.resource.data.paid == 0
+        && request.resource.data.log.size() == 0
+        && (
+          (request.resource.data.participants.size() == 1 && request.resource.data.status == 'accepted')
+          || (request.resource.data.participants.size() == 2 && request.resource.data.status == 'pending'
+              && request.resource.data.otherUid != request.auth.uid
+              && request.resource.data.otherUid in request.resource.data.participants)
+        );
+
+      // identity fields can never change; then ONE of the cases below must match
       allow update: if signedIn()
         && request.auth.uid in resource.data.participants
-        && request.resource.data.creatorUid == resource.data.creatorUid
-        && (request.resource.data.amount == resource.data.amount
-            || (resource.data.creatorUid == request.auth.uid
-                && resource.data.paid == 0
-                && (resource.data.status != 'accepted' || resource.data.participants.size() == 1)));
-      allow delete: if signedIn() && resource.data.creatorUid == request.auth.uid;
+        && newE().creatorUid == oldE().creatorUid
+        && newE().participants == oldE().participants
+        && newE().type == oldE().type
+        && newE().otherUid == oldE().otherUid
+        && (
+          // 1) the other person accepts / rejects the request
+          ( oldE().status == 'pending' && oldE().creatorUid != request.auth.uid
+            && only(['status']) && newE().status in ['accepted', 'rejected'] )
+
+          // 2) creator edits a not-yet-confirmed entry (or re-sends a rejected one)
+          || ( !personal() && oldE().creatorUid == request.auth.uid && oldE().status != 'accepted'
+               && only(['note', 'date', 'dueDate', 'amount', 'status'])
+               && newE().amount > 0 && oldE().paid == 0
+               && (newE().status == oldE().status || (oldE().status == 'rejected' && newE().status == 'pending')) )
+
+          // 3) personal (private) entry: owner can do everything on its money fields
+          || ( personal() && oldE().creatorUid == request.auth.uid
+               && only(['note', 'date', 'dueDate', 'amount', 'paid', 'log', 'remindedAt'])
+               && newE().amount > 0 && newE().paid >= 0 )
+
+          // 4) confirmed shared entry: ONLY the lender may touch note / due date / reminder
+          || ( !personal() && oldE().status == 'accepted' && isLender()
+               && only(['note', 'dueDate', 'remindedAt']) )
+
+          // 5) either side adds a new PENDING request to the log:
+          //    borrower -> repayment ('repay'),  lender -> extra loan ('topup')
+          || ( !personal() && oldE().status == 'accepted'
+               && only(['log'])
+               && newE().log.size() == lastIdx() + 1
+               && newE().log[lastIdx()].uid == request.auth.uid
+               && newE().log[lastIdx()].status == 'pending'
+               && newE().log[lastIdx()].amt > 0
+               && ( (newE().log[lastIdx()].k == 'topup' && isLender())
+                    || (newE().log[lastIdx()].k == 'repay' && !isLender()) ) )
+
+          // 6) the other side answers a request. The numbers can only move in the correct direction:
+          //    'paid' can only go UP and only by the LENDER (repayment confirmed by who receives it)
+          //    'amount' can only go UP and only by the BORROWER (extra loan confirmed by who receives it)
+          || ( !personal() && oldE().status == 'accepted'
+               && only(['log', 'paid', 'amount'])
+               && newE().log.size() == oldE().log.size()
+               && newE().paid >= oldE().paid && newE().amount >= oldE().amount
+               && newE().paid <= newE().amount
+               && (newE().paid == oldE().paid || isLender())
+               && (newE().amount == oldE().amount || !isLender()) )
+        );
+
+      // DELETE:
+      //  - private entry: owner
+      //  - not confirmed yet / rejected: only the creator (cancel the request)
+      //  - confirmed & money still due: ONLY the lender (the borrower can never erase his debt)
+      //  - confirmed & fully paid: either side
+      allow delete: if signedIn()
+        && request.auth.uid in resource.data.participants
+        && (
+          ( personal() && resource.data.creatorUid == request.auth.uid )
+          || ( !personal() && resource.data.status != 'accepted' && resource.data.creatorUid == request.auth.uid )
+          || ( !personal() && resource.data.status == 'accepted' && resource.data.paid < resource.data.amount && isLender() )
+          || ( !personal() && resource.data.status == 'accepted' && resource.data.paid >= resource.data.amount )
+        );
     }
+
     match /notifications/{id} {
       allow create: if signedIn() && request.resource.data.fromUid == request.auth.uid;
       allow read, update, delete: if signedIn() && resource.data.toUid == request.auth.uid;
