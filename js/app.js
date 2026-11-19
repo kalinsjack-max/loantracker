@@ -182,8 +182,16 @@ const V = e => {
   const mine = e.creatorUid === me, puid = mine ? e.otherUid : e.creatorUid, pu = people.get(puid);
   return { ...e, mine, puid, dir: mine ? e.type : (e.type === 'lent' ? 'borrowed' : 'lent'),
     pname: pu?.name || (mine ? e.otherName : e.creatorName), puser: pu?.username || (mine ? e.otherUsername : e.creatorUsername), pphoto: pu?.photo || '',
-    rem: Math.max(0, r2(e.amount - (e.paid || 0))), pend: r2((e.log || []).filter(l => l.status === 'pending').reduce((a, l) => a + l.amt, 0)) };
+    rem: Math.max(0, r2(e.amount - (e.paid || 0))), pend: r2((e.log || []).filter(l => l.status === 'pending' && (l.k || 'repay') === 'repay').reduce((a, l) => a + l.amt, 0)),
+    tops: r2((e.log || []).filter(l => l.k === 'topup' && l.status === 'confirmed').reduce((a, l) => a + l.amt, 0)) };
 };
+/* ---- permission helpers (UI side; Firestore rules enforce the same) ---- */
+// borrower can never delete while money is still due; only lender (forgive) or anyone once fully settled
+const canDel = v => !v.puid ? v.mine : v.status !== 'accepted' ? v.mine : (v.rem > 0 ? v.dir === 'lent' : true);
+const canEditE = v => !v.puid ? v.mine : v.status !== 'accepted' ? v.mine : v.dir === 'lent';
+// repayment -> lender answers ; extra loan (top-up) -> borrower answers
+const canRespondItem = (v, l) => l.status === 'pending' && l.uid !== me && (l.k === 'topup' ? v.dir === 'borrowed' : v.dir === 'lent');
+const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const notify = (toUid, entryId, kind, data) => toUid && addDoc(collection(db, 'notifications'), {
   toUid, fromUid: me, entryId, kind, read: false, createdAt: Date.now(), data: { name: profile.name, username: profile.username, ...data } });
 function nText(n) {
@@ -195,6 +203,9 @@ function nText(n) {
     case 'payment': return d.payId ? t(d.dir === 'borrowed' ? 'askPayRecv' : 'askPayGave', w, a) : t('nPay', w, a, money(d.rem || 0));
     case 'payAcc': return t('nPayAcc', w, a, money(d.rem || 0));
     case 'payRej': return t('nPayRej', w, a);
+    case 'topup': return t('askTop', w, a);
+    case 'topAcc': return t('nTopAcc', w, a, money(d.tot || 0));
+    case 'topRej': return t('nTopRej', w, a);
     case 'deleted': return t('nDel', w, a);
     case 'reminder': return t('nRemind', w, a);
     case 'edited': return t('nEdit', w, a);
@@ -231,6 +242,7 @@ function render() {
   $('ring-o').style.strokeDashoffset = 138.23 * (1 - opct / 100); $('ring-o-t').textContent = opct + '%';
   const sum = lent + owed, ls = sum ? Math.round(lent / sum * 100) : 50;
   $('bar-l').style.width = ls + '%'; $('bar-o').style.width = (100 - ls) + '%';
+  renderActions(all);
   const pend = all.filter(v => v.status === 'pending').length;
   $('st-pend').textContent = pend ? t('stPend', pend) : '';
 
@@ -260,26 +272,54 @@ function render() {
 }
 const empty = () => `<div class="glass rounded-3xl p-12 text-center fu"><div class="w-14 h-14 mx-auto rounded-2xl bg-slate-500/10 text-mut flex items-center justify-center mb-3">${ic('inbox', 'w-7 h-7')}</div><div class="font-bold">${t('emptyT')}</div><div class="text-xs text-mut mt-1">${t('emptyS')}</div></div>`;
 
+const respBtns = (eid, pid) => `<div class="flex flex-wrap gap-2"><button data-act="payok" data-id="${eid}" data-pid="${pid}" class="btn">${ic('check')}${t('yesRecv')}</button><button data-act="payno" data-id="${eid}" data-pid="${pid}" class="btn-danger">${ic('x')}${t('noRecv')}</button></div>`;
+const entryBtns = (id, lent) => `<div class="flex flex-wrap gap-2"><button data-act="accept" data-id="${id}" class="btn">${ic('check')}${t(lent ? 'yesGave' : 'yesRecv')}</button><button data-act="reject" data-id="${id}" class="btn-danger">${ic('x')}${t(lent ? 'noGave' : 'noRecv')}</button></div>`;
+
+/* ---- "needs your answer" panel: every request waiting for MY accept/reject in one place ---- */
+function renderActions(all) {
+  const box = $('actions'); if (!box) return;
+  const items = [];
+  all.forEach(v => {
+    if (v.status === 'pending' && !v.mine && v.puid) items.push({ v, ts: v.createdAt || 0, html: `<div class="font-semibold mb-2.5">${esc(t(v.dir === 'lent' ? 'askGave' : 'askRecv', v.pname, money(v.amount)))}</div>${entryBtns(v.id, v.dir === 'lent')}` });
+    (v.log || []).forEach(l => { if (canRespondItem(v, l)) items.push({ v, ts: l.ts || 0, html: `<div class="font-semibold mb-2.5">${esc(l.k === 'topup' ? t('askTop', v.pname, money(l.amt)) : t('askPayRecv', v.pname, money(l.amt)))}${l.note ? ` <span class="text-mut font-normal">— ${esc(l.note)}</span>` : ''}</div>${respBtns(v.id, l.id)}` }); });
+  });
+  if (loading || !items.length) { box.innerHTML = ''; box.classList.add('hidden'); return; }
+  items.sort((a, b) => b.ts - a.ts);
+  box.classList.remove('hidden');
+  box.innerHTML = `<div class="glass rounded-3xl p-4 space-y-3 border border-amber-500/40"><div class="font-extrabold text-amber-500 flex items-center gap-2">${ic('bell')}${t('actTitle', items.length)}</div>`
+    + items.map(x => `<div class="banner amber flex gap-3">${av(x.v.pname, x.v.pphoto, 'sm')}<div class="min-w-0 flex-1">${x.html}</div></div>`).join('') + '</div>';
+}
+
 function card(v, i) {
-  const lent = v.dir === 'lent', settled = v.status === 'accepted' && !v.rem, nm = esc(v.pname);
+  const lent = v.dir === 'lent', settled = v.status === 'accepted' && !v.rem, nm = esc(v.pname), shared = !!v.puid, okA = v.status === 'accepted';
   const pct = v.amount ? Math.min(100, Math.round((v.paid || 0) / v.amount * 100)) : 0;
-  const overdue = v.status === 'accepted' && v.rem && v.dueDate && v.dueDate < today();
+  const overdue = okA && v.rem && v.dueDate && v.dueDate < today();
   let banner = '';
-  if (v.status === 'pending' && !v.mine) banner = `<div class="banner amber"><div class="font-semibold mb-2.5">${t(lent ? 'askGave' : 'askRecv', nm, money(v.amount))}</div>
-    <div class="flex flex-wrap gap-2"><button data-act="accept" data-id="${v.id}" class="btn">${ic('check')}${t(lent ? 'yesGave' : 'yesRecv')}</button><button data-act="reject" data-id="${v.id}" class="btn-danger">${ic('x')}${t(lent ? 'noGave' : 'noRecv')}</button></div></div>`;
+  if (v.status === 'pending' && !v.mine) banner = `<div class="banner amber"><div class="font-semibold mb-2.5">${t(lent ? 'askGave' : 'askRecv', nm, money(v.amount))}</div>${entryBtns(v.id, lent)}</div>`;
   else if (v.status === 'pending' && v.puid) banner = `<div class="banner amber font-semibold">${t(lent ? 'waitLent' : 'waitBorrowed', nm)}</div>`;
   else if (v.status === 'rejected') banner = `<div class="banner rose"><span class="font-semibold">${v.mine ? t(lent ? 'rejLent' : 'rejBorrowed', nm) : t('rejByMe')}</span>${v.mine ? `<div class="mt-2"><button data-act="edit" data-id="${v.id}" class="ghost">${ic('send')}${t('resend')}</button></div>` : ''}</div>`;
+  const locked = okA && shared && v.rem > 0 && !canDel(v);
   const tags = [lent ? `<span class="tag green">${t('toRecv')}</span>` : `<span class="tag rose">${t('toPay')}</span>`,
-    !v.puid ? `<span class="tag slate">${ic('lock', 'w-3 h-3')}${t('personal')}</span>` : '',
-    v.status === 'accepted' && v.puid && !settled ? `<span class="tag sky">${ic('check', 'w-3 h-3')}${t('confirmed')}</span>` : '',
+    !shared ? `<span class="tag slate">${ic('lock', 'w-3 h-3')}${t('personal')}</span>` : '',
+    okA && shared && !settled ? `<span class="tag sky">${ic('check', 'w-3 h-3')}${t('confirmed')}</span>` : '',
+    locked ? `<span class="tag slate" title="${esc(t('delLockMsg'))}">${ic('lock', 'w-3 h-3')}${t('delLock')}</span>` : '',
     settled ? `<span class="tag slate">${ic('check', 'w-3 h-3')}${t('settled')}</span>` : '', overdue ? `<span class="tag amber">${t('overdue')}</span>` : ''].join('');
-  const acts = [v.status === 'accepted' && v.rem ? `<button data-act="pay" data-id="${v.id}" class="btn">${ic('coins')}${t('pay')}</button>` : '',
-    v.status === 'accepted' && v.rem && lent && v.puid ? `<button data-act="remind" data-id="${v.id}" class="ghost sm" title="${t('remind')}">${ic('bell')}</button>` : '',
-    v.mine ? `<button data-act="edit" data-id="${v.id}" class="ghost sm" title="${t('edit')}">${ic('edit')}</button><button data-act="del" data-id="${v.id}" class="ghost sm red" title="${t('del')}">${ic('trash')}</button>` : ''].join('');
-  const log = (v.log || []).map(l => { const st = l.status === 'pending' ? `<span class="tag amber">⏳ ${t('payWait')}</span>` : l.status === 'rejected' ? `<span class="tag rose">✖ ${t('rejTag')}</span>` : '';
-    return `<div class="flex justify-between gap-2 items-center"><span>↳ ${esc(fdate(l.date))} • ${esc(l.by)}${l.note ? ' — ' + esc(l.note) : ''} ${st}</span><b class="mono ${l.status === 'rejected' ? 'line-through opacity-60' : ''}">${money(l.amt)}</b></div>`; }).join('');
-  const payBan = (v.log || []).filter(l => l.status === 'pending' && l.uid !== me).map(l => `<div class="banner amber"><div class="font-semibold mb-2.5">${t(l.dir === 'borrowed' ? 'askPayRecv' : 'askPayGave', nm, money(l.amt))}</div>
-    <div class="flex flex-wrap gap-2"><button data-act="payok" data-id="${v.id}" data-pid="${l.id}" class="btn">${ic('check')}${t(l.dir === 'borrowed' ? 'yesRecv' : 'yesGave')}</button><button data-act="payno" data-id="${v.id}" data-pid="${l.id}" class="btn-danger">${ic('x')}${t(l.dir === 'borrowed' ? 'noRecv' : 'noGave')}</button></div></div>`).join('');
+  /* role based buttons: borrower -> Repay ; lender -> Deposit (extra loan). personal entries get both. */
+  const acts = [
+    okA && !lent && v.rem ? `<button data-act="pay" data-id="${v.id}" class="btn">${ic('coins')}${t('btnRepay')}</button>` : '',
+    okA && lent && !shared && v.rem ? `<button data-act="pay" data-id="${v.id}" class="btn">${ic('coins')}${t('btnReceive')}</button>` : '',
+    okA && (lent || !shared) ? `<button data-act="top" data-id="${v.id}" class="${shared ? 'btn' : 'ghost'}">${ic('plus')}${t(lent ? 'btnTop' : 'btnTopB')}</button>` : '',
+    okA && v.rem && lent && shared ? `<button data-act="remind" data-id="${v.id}" class="ghost sm" title="${t('remind')}">${ic('bell')}</button>` : '',
+    canEditE(v) ? `<button data-act="edit" data-id="${v.id}" class="ghost sm" title="${t('edit')}">${ic('edit')}</button>` : '',
+    canDel(v) ? `<button data-act="del" data-id="${v.id}" class="ghost sm red" title="${t('del')}">${ic('trash')}</button>` : ''].join('');
+  const log = (v.log || []).map(l => {
+    const top = l.k === 'topup';
+    const st = l.status === 'pending' ? `<span class="tag amber">⏳ ${t('payWait')}</span>` : l.status === 'rejected' ? `<span class="tag rose">✖ ${t('rejTag')}</span>` : l.status === 'cancelled' ? `<span class="tag slate">${t('cancelledTag')}</span>` : '';
+    const kt = top ? `<span class="tag sky">➕ ${t('topTag')}</span>` : '';
+    const cx = l.status === 'pending' && l.uid === me ? `<button data-act="payx" data-id="${v.id}" data-pid="${l.id}" class="text-rose-500 underline">${t('cancelReq')}</button>` : '';
+    const dead = l.status === 'rejected' || l.status === 'cancelled';
+    return `<div class="flex justify-between gap-2 items-center"><span>↳ ${esc(fdate(l.date))} • ${esc(l.by)}${l.note ? ' — ' + esc(l.note) : ''} ${kt} ${st} ${cx}</span><b class="mono ${dead ? 'line-through opacity-60' : ''}">${top ? '+' : ''}${money(l.amt)}</b></div>`; }).join('');
+  const payBan = (v.log || []).filter(l => canRespondItem(v, l)).map(l => `<div class="banner amber"><div class="font-semibold mb-2.5">${esc(l.k === 'topup' ? t('askTop', v.pname, money(l.amt)) : t('askPayRecv', v.pname, money(l.amt)))}</div>${respBtns(v.id, l.id)}</div>`).join('');
   return `<div class="glass lift rounded-3xl p-4 space-y-3 ${settled ? 'opacity-75' : ''}" style="animation-delay:${Math.min(i * 45, 360)}ms">
     <div class="flex flex-wrap justify-between gap-3">
       <div class="flex gap-3 min-w-0">${av(v.pname, v.pphoto)}<div class="min-w-0 space-y-1">
@@ -288,7 +328,7 @@ function card(v, i) {
         <div class="text-[11px] text-mut flex flex-wrap gap-x-3">${ic('cal', 'w-3 h-3 inline')}<span>${esc(fdate(v.date))}</span>${v.dueDate ? `<span class="${overdue ? 'text-amber-500 font-semibold' : ''}">${t('dueP')}: ${esc(fdate(v.dueDate))}</span>` : ''}</div></div></div>
       <div class="flex gap-2 items-start flex-wrap">${acts}</div></div>
     ${banner}${payBan}
-    <div><div class="flex flex-wrap justify-between gap-1 text-xs mb-1.5"><span>${t('total')}: <b class="mono">${money(v.amount)}</b></span><span>${t('paid')}: <b class="mono text-sky-500">${money(v.paid || 0)}</b> (${pct}%)</span><span>${t('remaining')}: <b class="mono ${lent ? 'text-emerald-500' : 'text-rose-500'}">${money(v.rem)}</b></span></div>
+    <div><div class="flex flex-wrap justify-between gap-1 text-xs mb-1.5"><span>${t('total')}: <b class="mono">${money(v.amount)}</b>${v.tops ? ` <span class="text-[10px] text-mut">(${t('topIncl', money(v.tops))})</span>` : ''}</span><span>${t('paid')}: <b class="mono text-sky-500">${money(v.paid || 0)}</b> (${pct}%)</span><span>${t('remaining')}: <b class="mono ${lent ? 'text-emerald-500' : 'text-rose-500'}">${money(v.rem)}</b></span></div>
       <div class="h-2 rounded-full bg-slate-500/20 overflow-hidden"><div class="h-full rounded-full bg-gradient-to-r ${lent ? 'from-emerald-500 to-teal-400' : 'from-sky-500 to-indigo-400'} transition-all duration-700" style="width:${pct}%"></div></div>
       ${log ? `<div class="text-[11px] text-mut mt-2.5 space-y-1">${log}</div>` : ''}</div></div>`;
 }
@@ -312,15 +352,17 @@ function peopleView(list) {
 }
 function historyView(list) {
   const ev = [];
-  list.forEach(v => { ev.push({ date: v.date, ts: v.createdAt || 0, k: 'c', v }); (v.log || []).forEach(l => ev.push({ date: l.date, ts: l.ts || 0, k: 'p', v, l })); });
+  list.forEach(v => { ev.push({ date: v.date, ts: v.createdAt || 0, k: 'c', v }); (v.log || []).forEach(l => { if (l.status !== 'cancelled') ev.push({ date: l.date, ts: l.ts || 0, k: 'p', v, l }); }); });
   ev.sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.ts - a.ts);
   if (!ev.length) return '';
-  return `<div class="timeline space-y-3">${ev.map((e, i) => { const lent = e.v.dir === 'lent', nm = esc(e.v.pname);
+  return `<div class="timeline space-y-3">${ev.map((e, i) => { const lent = e.v.dir === 'lent', nm = esc(e.v.pname), top = e.k === 'p' && e.l.k === 'topup';
+    const base = r2(e.v.amount - e.v.tops);
     const dot = e.k === 'p' ? 'bg-sky-500 text-white' : lent ? 'bg-emerald-500 text-slate-950' : 'bg-rose-500 text-white';
-    const txt = e.k === 'p' ? (e.l.status === 'pending' ? '⏳ ' : e.l.status === 'rejected' ? '✖ ' : '') + t('evPay', nm, money(e.l.amt), esc(e.l.by)) : t(lent ? 'evLent' : 'evBorrowed', nm, money(e.v.amount));
-    return `<div class="glass rounded-2xl p-3.5 relative flex flex-wrap justify-between gap-2" style="animation-delay:${Math.min(i * 35, 350)}ms"><span class="tdot ${dot}">${ic(e.k === 'p' ? 'coins' : lent ? 'send' : 'download', 'w-3 h-3')}</span>
+    const pre = e.k === 'p' ? (e.l.status === 'pending' ? '⏳ ' : e.l.status === 'rejected' ? '✖ ' : '') : '';
+    const txt = e.k === 'p' ? pre + (top ? t(lent ? 'evTopL' : 'evTopB', nm, money(e.l.amt)) : t('evPay', nm, money(e.l.amt), esc(e.l.by))) : t(lent ? 'evLent' : 'evBorrowed', nm, money(base));
+    return `<div class="glass rounded-2xl p-3.5 relative flex flex-wrap justify-between gap-2" style="animation-delay:${Math.min(i * 35, 350)}ms"><span class="tdot ${dot}">${ic(e.k === 'p' ? (top ? 'plus' : 'coins') : lent ? 'send' : 'download', 'w-3 h-3')}</span>
       <div><div class="text-sm font-semibold">${txt}</div><div class="text-[11px] text-mut mt-0.5">${esc(fdate(e.date))}${e.v.note && e.k === 'c' ? ' • ' + esc(e.v.note) : ''}</div></div>
-      <span class="font-extrabold mono ${e.k === 'p' ? 'text-sky-500' : lent ? 'text-emerald-500' : 'text-rose-500'}">${money(e.k === 'p' ? e.l.amt : e.v.amount)}</span></div>`; }).join('')}</div>`;
+      <span class="font-extrabold mono ${e.k === 'p' ? 'text-sky-500' : lent ? 'text-emerald-500' : 'text-rose-500'}">${money(e.k === 'p' ? e.l.amt : base)}</span></div>`; }).join('')}</div>`;
 }
 function renderBell() {
   const n = notes.filter(x => !x.read).length;
@@ -369,26 +411,42 @@ $('add-form').onsubmit = async e => {
 
 /* ================= actions ================= */
 async function respond(id, ok) {
-  const e = entries.find(x => x.id === id); if (!e) return;
+  const e = entries.find(x => x.id === id); if (!e || e.status !== 'pending' || e.creatorUid === me) return;
   await updateDoc(doc(db, 'entries', id), { status: ok ? 'accepted' : 'rejected' });
   await notify(e.creatorUid, id, ok ? 'accepted' : 'rejected', { amount: e.amount, type: e.type });
   notes.filter(n => n.entryId === id && n.kind === 'request' && !n.read).forEach(n => updateDoc(doc(db, 'notifications', n.id), { read: true }));
   toast(t(ok ? 'accepted' : 'rejected'), ok ? 'ok' : 'info');
 }
+/* answer a repayment (lender confirms -> remaining drops) or an extra loan (borrower confirms -> total grows) */
 async function respondPay(eid, pid, ok) {
-  const ref = doc(db, 'entries', eid); let rec = null, item = null, remAfter = 0;
+  const ref = doc(db, 'entries', eid); let rec = null, item = null, remAfter = 0, totAfter = 0;
   await runTransaction(db, async tx => {
     const sn = await tx.get(ref); if (!sn.exists()) return;
     const e = sn.data(), log = (e.log || []).map(l => ({ ...l })), it = log.find(l => l.id === pid);
-    if (!it || it.status !== 'pending') return;
-    const rem = r2(e.amount - (e.paid || 0)), pay = ok ? Math.min(it.amt, rem) : 0;
-    it.status = ok ? 'confirmed' : 'rejected'; if (ok) it.amt = pay;
-    const upd = { log }; if (ok) upd.paid = r2((e.paid || 0) + pay);
-    tx.update(ref, upd); rec = it.uid; item = it; remAfter = r2(rem - pay);
+    if (!it || it.status !== 'pending' || it.uid === me) return;
+    const upd = { log }; it.status = ok ? 'confirmed' : 'rejected';
+    let amount = e.amount, paid = e.paid || 0;
+    if (it.k === 'topup') { if (ok) { amount = r2(e.amount + it.amt); upd.amount = amount; } }
+    else { const rem = r2(e.amount - paid), pay = ok ? Math.min(it.amt, rem) : 0; if (ok) { it.amt = pay; paid = r2(paid + pay); upd.paid = paid; } }
+    tx.update(ref, upd); rec = it.uid; item = it; totAfter = amount; remAfter = r2(amount - paid);
   });
-  if (rec) await notify(rec, eid, ok ? 'payAcc' : 'payRej', { amount: item.amt, rem: remAfter, dir: item.dir });
+  if (rec) {
+    if (item.k === 'topup') await notify(rec, eid, ok ? 'topAcc' : 'topRej', { amount: item.amt, tot: totAfter, rem: remAfter });
+    else await notify(rec, eid, ok ? 'payAcc' : 'payRej', { amount: item.amt, rem: remAfter, dir: item.dir });
+  }
   notes.filter(n => n.data?.payId === pid && !n.read).forEach(n => updateDoc(doc(db, 'notifications', n.id), { read: true }));
   toast(t(ok ? 'accepted' : 'rejected'), ok ? 'ok' : 'info');
+}
+/* initiator withdraws his own waiting request */
+async function cancelPay(eid, pid) {
+  const ref = doc(db, 'entries', eid);
+  await runTransaction(db, async tx => {
+    const sn = await tx.get(ref); if (!sn.exists()) return;
+    const log = (sn.data().log || []).map(l => ({ ...l })), it = log.find(l => l.id === pid);
+    if (!it || it.status !== 'pending' || it.uid !== me) return;
+    it.status = 'cancelled'; tx.update(ref, { log });
+  });
+  toast(t('cancelledTag'), 'info');
 }
 function showNotifs() {
   const rows = notes.length ? notes.map(n => {
@@ -396,18 +454,17 @@ function showNotifs() {
     let st = '';
     if (n.kind === 'request') {
       if (!e) st = `<span class="tag slate">${t('nDeleted')}</span>`;
-      else if (e.status === 'pending' && e.creatorUid !== me) { const lent = V(e).dir === 'lent';
-        st = `<div class="flex flex-wrap gap-2 mt-2.5"><button data-act="accept" data-id="${n.entryId}" class="btn">${ic('check')}${t(lent ? 'yesGave' : 'yesRecv')}</button><button data-act="reject" data-id="${n.entryId}" class="btn-danger">${ic('x')}${t(lent ? 'noGave' : 'noRecv')}</button></div>`; }
+      else if (e.status === 'pending' && e.creatorUid !== me) st = `<div class="mt-2.5">${entryBtns(n.entryId, V(e).dir === 'lent')}</div>`;
       else if (e.status === 'accepted') st = `<span class="tag green mt-2">${ic('check', 'w-3 h-3')}${t('nYouAccepted')}</span>`;
       else if (e.status === 'rejected') st = `<span class="tag rose mt-2">${ic('x', 'w-3 h-3')}${t('nYouRejected')}</span>`;
     }
-    if (n.kind === 'payment' && n.data?.payId) {
+    if ((n.kind === 'payment' || n.kind === 'topup') && n.data?.payId) {
       const l = (e?.log || []).find(x => x.id === n.data.payId);
       if (!e || !l) st = `<span class="tag slate mt-2">${t('nDeleted')}</span>`;
-      else if (l.status === 'pending' && l.uid !== me) { const b = l.dir === 'borrowed';
-        st = `<div class="flex flex-wrap gap-2 mt-2.5"><button data-act="payok" data-id="${n.entryId}" data-pid="${l.id}" class="btn">${ic('check')}${t(b ? 'yesRecv' : 'yesGave')}</button><button data-act="payno" data-id="${n.entryId}" data-pid="${l.id}" class="btn-danger">${ic('x')}${t(b ? 'noRecv' : 'noGave')}</button></div>`; }
+      else if (canRespondItem(V(e), l)) st = `<div class="mt-2.5">${respBtns(n.entryId, l.id)}</div>`;
       else if (l.status === 'rejected') st = `<span class="tag rose mt-2">${ic('x', 'w-3 h-3')}${t('nYouRejected')}</span>`;
-      else st = `<span class="tag green mt-2">${ic('check', 'w-3 h-3')}${t('nYouAccepted')}</span>`;
+      else if (l.status === 'cancelled') st = `<span class="tag slate mt-2">${t('cancelledTag')}</span>`;
+      else if (l.status === 'confirmed') st = `<span class="tag green mt-2">${ic('check', 'w-3 h-3')}${t('nYouAccepted')}</span>`;
     }
     return `<div class="sub rounded-2xl p-3 flex gap-3 ${n.read ? 'opacity-70' : 'border-emerald-500/40'}">${av(f?.name || n.data?.name, f?.photo, 'sm')}
       <div class="min-w-0 flex-1"><div class="text-[13px] leading-snug">${!n.read ? `<span class="tag green mr-1">${t('newTag')}</span>` : ''}${esc(nText(n))}</div>
@@ -420,22 +477,34 @@ function showTools() {
   openModal(`${mhead('tools', t('tools'), 'sky')}<div class="space-y-2.5"><button data-act="csv" class="ghost w-full !justify-start py-3">${ic('download')}${t('exportCsv')}</button><button data-act="sumcopy" class="ghost w-full !justify-start py-3">${ic('copy')}${t('copySum')}</button></div>`, 'tools');
 }
 function showPay(id) {
-  const v = V(entries.find(x => x.id === id)); payId = id; const mx = Math.max(0, r2(v.rem - v.pend));
-  openModal(`${mhead('coins', t('payTitle'))}
+  const v = V(entries.find(x => x.id === id)); payId = id; const mx = Math.max(0, r2(v.rem - v.pend)), recv = !v.puid && v.dir === 'lent';
+  openModal(`${mhead('coins', t(recv ? 'receiveTitle' : 'repayTitle'))}
     <div class="sub rounded-2xl p-3.5 mb-4 flex items-center gap-3">${av(v.pname, v.pphoto, 'sm')}<div class="flex-1 min-w-0"><div class="font-bold truncate">${esc(v.pname)}</div><div class="text-[11px] text-mut">${t('remaining')}</div></div><div class="font-extrabold mono text-lg">${money(v.rem)}</div></div>
     <div class="space-y-3"><input id="pay-amt" type="number" step="any" min="0.01" max="${mx}" class="inp mono font-bold text-base" placeholder="${t('payAmt')}" data-rem="${v.rem}">
     <div class="flex gap-2 flex-wrap"><button data-act="payfill" data-v="${mx}" class="ghost sm">${t('full')}</button><button data-act="payfill" data-v="${r2(mx / 2)}" class="ghost sm">${t('half')}</button></div>
     <div class="text-xs text-mut flex justify-between border-t border-slate-500/15 pt-2.5"><span>${t('after')}</span><b id="pay-after" class="mono text-sky-500">${money(v.rem)}</b></div>
-    ${v.puid ? `<p class="text-[11px] text-amber-500">⏳ ${t('payConfirmHint')}</p>` : ''}<input id="pay-note" class="inp" placeholder="${t('payNote')}"><button data-act="dopay" class="btn w-full py-3">${ic('check')}${t('confirm')}</button></div>`, 'pay');
+    ${v.puid ? `<p class="text-[11px] text-amber-500">⏳ ${t('repayHint')}</p>` : ''}<input id="pay-note" class="inp" placeholder="${t('payNote')}"><button data-act="dopay" class="btn w-full py-3">${ic('check')}${t('confirm')}</button></div>`, 'pay');
   setTimeout(() => $('pay-amt')?.focus(), 250);
+}
+function showTop(id) {
+  const v = V(entries.find(x => x.id === id)); payId = id;
+  openModal(`${mhead('plus', t(v.dir === 'lent' ? 'topTitle' : 'topTitleB'))}
+    <div class="sub rounded-2xl p-3.5 mb-4 flex items-center gap-3">${av(v.pname, v.pphoto, 'sm')}<div class="flex-1 min-w-0"><div class="font-bold truncate">${esc(v.pname)}</div><div class="text-[11px] text-mut">${t('total')}</div></div><div class="font-extrabold mono text-lg">${money(v.amount)}</div></div>
+    <div class="space-y-3"><input id="top-amt" type="number" step="any" min="0.01" class="inp mono font-bold text-base" placeholder="${t('topAmt')}" data-tot="${v.amount}" data-rem="${v.rem}">
+    <div class="flex gap-2 flex-wrap"><button data-act="topq" data-v="500" class="ghost sm mono">+500</button><button data-act="topq" data-v="1000" class="ghost sm mono">+1,000</button><button data-act="topq" data-v="5000" class="ghost sm mono">+5,000</button></div>
+    <div class="text-xs text-mut space-y-1.5 border-t border-slate-500/15 pt-2.5"><div class="flex justify-between"><span>${t('newTotal')}</span><b id="top-tot" class="mono text-sky-500">${money(v.amount)}</b></div><div class="flex justify-between"><span>${t('newRem')}</span><b id="top-rem" class="mono text-sky-500">${money(v.rem)}</b></div></div>
+    ${v.puid ? `<p class="text-[11px] text-amber-500">⏳ ${t('topHint')}</p>` : ''}<input id="top-note" class="inp" placeholder="${t('topNote')}"><button data-act="dotop" class="btn w-full py-3">${ic('check')}${t('confirm')}</button></div>`, 'top');
+  setTimeout(() => $('top-amt')?.focus(), 250);
 }
 function showEdit(id) {
   const v = V(entries.find(x => x.id === id)); editId = id;
+  const meta = v.status === 'accepted' && !!v.puid; // confirmed shared entry: lender may only change note + due date
   const canAmt = v.mine && !(v.paid || 0) && (v.status !== 'accepted' || !v.puid);
   openModal(`${mhead('edit', t('editTitle'), 'sky')}<div class="space-y-3">
     <div><label class="lb">${t('amount')}</label><input id="e-amt" type="number" step="any" min="0.01" class="inp mono font-bold" value="${v.amount}" ${canAmt ? '' : 'disabled'}>${canAmt ? '' : `<p class="text-[11px] text-mut mt-1">${t('amtLocked')}</p>`}</div>
     <div><label class="lb">${t('note')}</label><input id="e-note" class="inp" value="${esc(v.note)}"></div>
-    <div class="grid grid-cols-2 gap-3"><div><label class="lb">${t('date')}</label><input id="e-date" type="date" class="inp !text-xs" value="${esc(v.date)}"></div><div><label class="lb">${t('due')}</label><input id="e-due" type="date" class="inp !text-xs" value="${esc(v.dueDate || '')}"></div></div>
+    <div class="grid grid-cols-2 gap-3"><div><label class="lb">${t('date')}</label><input id="e-date" type="date" class="inp !text-xs" value="${esc(v.date)}" ${meta ? 'disabled' : ''}></div><div><label class="lb">${t('due')}</label><input id="e-due" type="date" class="inp !text-xs" value="${esc(v.dueDate || '')}"></div></div>
+    ${meta ? `<p class="text-[11px] text-mut">${t('metaOnly')}</p>` : ''}
     <div class="flex justify-end gap-2 pt-1"><button data-act="close" class="ghost">${t('cancel')}</button><button data-act="doedit" class="btn">${v.status === 'rejected' ? ic('send') + t('resend') : t('saveCh')}</button></div></div>`, 'edit');
 }
 function showProfile() {
@@ -474,6 +543,7 @@ document.addEventListener('change', async e => {
 const countersReset = () => ['st-lent', 'st-owed', 'st-net'].forEach(i => $(i).dataset.v = 0);
 document.addEventListener('input', e => {
   if (e.target.id === 'pay-amt') { const rem = +e.target.dataset.rem, v = parseFloat(e.target.value) || 0; $('pay-after').textContent = money(Math.max(0, r2(rem - v))); }
+  if (e.target.id === 'top-amt') { const d = e.target.dataset, v = Math.max(0, parseFloat(e.target.value) || 0); $('top-tot').textContent = money(r2(+d.tot + v)); $('top-rem').textContent = money(r2(+d.rem + v)); }
 });
 
 function summaryText() {
@@ -540,27 +610,44 @@ document.addEventListener('click', async ev => {
         break;
       }
       case 'pay': showPay(id); break;
+      case 'top': showTop(id); break;
+      case 'topq': { const el = $('top-amt'); el.value = r2((parseFloat(el.value) || 0) + +b.dataset.v); el.dispatchEvent(new Event('input', { bubbles: true })); break; }
       case 'payfill': $('pay-amt').value = b.dataset.v; $('pay-amt').dispatchEvent(new Event('input', { bubbles: true })); break;
-      case 'dopay': {
-        const e = entries.find(x => x.id === payId), v = V(e), amt = r2(parseFloat($('pay-amt').value));
+      case 'dopay': { // borrower repays (shared: needs lender's OK) | personal entry: direct
+        const e = entries.find(x => x.id === payId); if (!e) break; const v = V(e), amt = r2(parseFloat($('pay-amt').value));
+        if (v.puid && v.dir === 'lent') return toast(t('err'), 'err');
         if (!(amt > 0)) return toast(t('badAmount'), 'err');
         const mx = Math.max(0, r2(v.rem - v.pend)); if (mx <= 0) return toast(t('payPendingAll'), 'info');
         const pay = Math.min(amt, mx), note = $('pay-note').value.trim();
-        const item = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), amt: pay, date: today(), ts: Date.now(), note, by: profile.name, uid: me, dir: v.dir, status: v.puid ? 'pending' : 'confirmed' };
+        const item = { id: newId(), k: 'repay', amt: pay, date: today(), ts: Date.now(), note, by: profile.name, uid: me, dir: v.dir, status: v.puid ? 'pending' : 'confirmed' };
         if (v.puid) { await updateDoc(doc(db, 'entries', payId), { log: arrayUnion(item) }); await notify(v.puid, payId, 'payment', { amount: pay, dir: v.dir, payId: item.id }); closeModal(); toast(t('paySent'), 'ok'); }
         else { await updateDoc(doc(db, 'entries', payId), { paid: increment(pay), log: arrayUnion(item) }); closeModal(); toast(pay >= v.rem ? t('paidFull') : t('paidPart', money(pay), money(r2(v.rem - pay))), 'ok'); }
         break;
       }
+      case 'dotop': { // lender adds extra loan (shared: needs borrower's OK) | personal entry: direct
+        const e = entries.find(x => x.id === payId); if (!e) break; const v = V(e), amt = r2(parseFloat($('top-amt').value));
+        if (v.puid && v.dir !== 'lent') return toast(t('err'), 'err');
+        if (!(amt > 0)) return toast(t('badAmount'), 'err');
+        const note = $('top-note').value.trim();
+        const item = { id: newId(), k: 'topup', amt, date: today(), ts: Date.now(), note, by: profile.name, uid: me, dir: v.dir, status: v.puid ? 'pending' : 'confirmed' };
+        if (v.puid) { await updateDoc(doc(db, 'entries', payId), { log: arrayUnion(item) }); await notify(v.puid, payId, 'topup', { amount: amt, payId: item.id }); closeModal(); toast(t('topSent'), 'ok'); }
+        else { await updateDoc(doc(db, 'entries', payId), { amount: increment(amt), log: arrayUnion(item) }); closeModal(); toast(t('topAdded', money(amt), money(r2(v.amount + amt))), 'ok'); }
+        break;
+      }
       case 'payok': await respondPay(id, b.dataset.pid, true); break;
       case 'payno': await respondPay(id, b.dataset.pid, false); break;
+      case 'payx': await cancelPay(id, b.dataset.pid); break;
       case 'edit': showEdit(id); break;
       case 'doedit': {
-        const e = entries.find(x => x.id === editId), v = V(e), upd = { note: $('e-note').value.trim(), date: $('e-date').value || e.date, dueDate: $('e-due').value };
+        const e = entries.find(x => x.id === editId), v = V(e); if (!e || !canEditE(v)) return toast(t('err'), 'err');
+        const meta = e.status === 'accepted' && !!e.otherUid;
+        if (meta) { await updateDoc(doc(db, 'entries', editId), { note: $('e-note').value.trim(), dueDate: $('e-due').value }); closeModal(); toast(t('updated'), 'ok'); break; }
+        const upd = { note: $('e-note').value.trim(), date: $('e-date').value || e.date, dueDate: $('e-due').value };
         const amtEl = $('e-amt'); let resend = e.status === 'rejected';
         if (!amtEl.disabled) { const am = r2(parseFloat(amtEl.value)); if (!(am > 0)) return toast(t('badAmount'), 'err'); if (am !== e.amount) { upd.amount = am; resend = resend || (e.status === 'pending' && !!e.otherUid); } }
         if (resend && e.otherUid) upd.status = 'pending';
         await updateDoc(doc(db, 'entries', editId), upd);
-        if (resend && e.otherUid) await notify(e.otherUid, editId, upd.status === 'pending' && e.status === 'rejected' ? 'request' : 'edited', { amount: upd.amount ?? e.amount, type: e.type });
+        if (resend && e.otherUid) await notify(e.otherUid, editId, e.status === 'rejected' ? 'request' : 'edited', { amount: upd.amount ?? e.amount, type: e.type });
         closeModal(); toast(t('updated'), 'ok'); break;
       }
       case 'remind': {
@@ -571,9 +658,11 @@ document.addEventListener('click', async ev => {
       }
       case 'del': {
         const e = entries.find(x => x.id === id), v = V(e);
-        if (!await confirmBox(t('delTitle'), t('delMsg', v.pname, money(e.amount)), t('yesDel'))) return;
+        if (!canDel(v)) return toast(t('delLockMsg'), 'err');   // borrower can't delete while money is still due
+        const msg = v.puid && v.status === 'accepted' ? (v.rem > 0 ? t('delMsgLender', v.pname, money(v.rem)) : t('delMsgSettled', v.pname, money(e.amount))) : t('delMsg', v.pname, money(e.amount));
+        if (!await confirmBox(t('delTitle'), msg, t('yesDel'))) return;
         await deleteDoc(doc(db, 'entries', id));
-        if (e.otherUid) await notify(e.otherUid, id, 'deleted', { amount: e.amount });
+        if (v.puid) await notify(v.puid, id, 'deleted', { amount: e.amount });
         toast(t('deleted'), 'ok'); break;
       }
     }
