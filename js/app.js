@@ -381,7 +381,7 @@ function setSelNote() {
 $('f-person').oninput = (() => { let tm; return () => { selected = null; setSelNote(); clearTimeout(tm); tm = setTimeout(searchUsers, 280); }; })();
 async function searchUsers() {
   const q = $('f-person').value.trim().toLowerCase().replace(/^@/, ''), box = $('suggest');
-  if (q.length < 2) { box.classList.add('hidden'); return; }
+  if (q.length < 1) { box.classList.add('hidden'); return; }
   const run = f => getDocs(query(collection(db, 'users'), where(f, '>=', q), where(f, '<=', q + '\uf8ff'), limit(5)));
   try {
     const [a, b] = await Promise.all([run('usernameLower'), run('nameLower')]);
