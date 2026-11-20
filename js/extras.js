@@ -1,6 +1,6 @@
 /* Extra features: insights, reminders, PWA, statement, profile extras, account tools */
 import { sendEmailVerification, deleteUser } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { doc, deleteDoc, getDoc, setDoc, addDoc, updateDoc, collection, query, where, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { doc, deleteDoc, getDoc, setDoc, addDoc, updateDoc, collection, query, where, onSnapshot, getDocs, limit } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 export function initExtras(c) {
   const { auth, db, esc, money, getLang, toast, openModal, closeModal, signOut, get, av, people, notify } = c;
@@ -137,10 +137,32 @@ export function initExtras(c) {
     openModal(`<div class="flex justify-between items-center mb-3"><h3 class="font-extrabold">💬 ${tx('মেসেজ', 'Messages')}</h3><button data-act="close" class="ghost sm" aria-label="close">✕</button></div><div class="space-y-2">${rows || `<p class="text-xs text-mut text-center py-6">${tx('কোনো মেসেজ নেই। কারও প্রোফাইল থেকে মেসেজ পাঠান।', 'No messages yet. Open someone’s profile to message them.')}</p>`}</div>`, 'inbox');
   }
 
+
+  /* ---------- find people ---------- */
+  let fpTm;
+  function findBtn() {
+    if ($('fp-btn')) return; const tb = document.querySelector('header [data-act="tools"]'); if (!tb) return;
+    const b = document.createElement('button'); b.id = 'fp-btn'; b.dataset.act = 'people'; b.className = 'ghost'; b.textContent = '🔎'; b.setAttribute('aria-label', 'find people'); b.title = tx('মানুষ খুঁজুন', 'Find people'); tb.before(b);
+  }
+  function findPeople() {
+    openModal(`<div class="flex justify-between items-center mb-3"><h3 class="font-extrabold">🔎 ${tx('মানুষ খুঁজুন', 'Find people')}</h3><button data-act="close" class="ghost sm" aria-label="close">✕</button></div><input id="fp-in" class="inp" autocomplete="off" autocapitalize="none" placeholder="${tx('নাম বা @ইউজারনেম লিখুন', 'Type a name or @username')}"><div id="fp-res" class="space-y-2 mt-3"></div><p class="text-[11px] text-mut mt-3">${tx('কারও উপর ট্যাপ করলে তার প্রোফাইল ও পরিশোধের রেকর্ড দেখা যাবে।', 'Tap a person to see their profile and repayment record.')}</p>`, 'findp');
+    setTimeout(() => $('fp-in') && $('fp-in').focus(), 60);
+  }
+  async function fpSearch() {
+    const el = $('fp-in'), box = $('fp-res'); if (!el || !box) return;
+    const q = el.value.trim().toLowerCase().replace(/^@/, ''); if (!q) { box.innerHTML = ''; return; }
+    const run = f => getDocs(query(collection(db, 'users'), where(f, '>=', q), where(f, '<=', q + '\uf8ff'), limit(8)));
+    try {
+      const [a, b] = await Promise.all([run('usernameLower'), run('nameLower')]), m = new Map(); [...a.docs, ...b.docs].forEach(d => m.set(d.id, d.data()));
+      box.innerHTML = m.size ? [...m.entries()].map(([id, u]) => `<button data-act="viewp" data-uid="${id}" class="ghost w-full !justify-start gap-3 py-2.5 text-left">${av(u.name, u.photo, 'sm')}<div class="min-w-0"><div class="font-bold text-sm truncate">${esc(u.name)}</div><div class="text-[11px] text-mut">@${esc(u.username)}${u.location ? ' · 📍 ' + esc(u.location) : ''}</div></div></button>`).join('') : `<p class="text-xs text-mut text-center py-4">${tx('কাউকে পাওয়া যায়নি', 'No one found')}</p>`;
+    } catch { box.innerHTML = `<p class="text-xs text-rose-400 text-center py-4">${tx('খুঁজতে সমস্যা হয়েছে', 'Search failed')}</p>`; }
+  }
+  document.addEventListener('input', e => { if (e.target.id === 'fp-in') { clearTimeout(fpTm); fpTm = setTimeout(fpSearch, 280); } });
+
   return {
-    onRender(all) { last = all; insights(); banner(); sync(); if (!once) { once = true; remind(); tour(); } },
-    selBtn(u) { let b = $('sel-prof'); if (!u) { b && b.remove(); return; } if (!b) { b = document.createElement('button'); b.id = 'sel-prof'; b.type = 'button'; b.dataset.act = 'viewp'; b.className = 'ghost sm mt-1.5'; $('sel-note').after(b); } b.dataset.uid = u.uid; b.textContent = '👤 ' + tx('প্রোফাইল ও রেকর্ড দেখুন', 'View profile & record'); },
-    toolsHtml: () => `<button data-act="inbox" class="ghost w-full !justify-start py-3">💬 ${tx('মেসেজ', 'Messages')}</button><button data-act="stmt" class="ghost w-full !justify-start py-3">🧾 ${tx('স্টেটমেন্ট (PDF/প্রিন্ট)', 'Statement (PDF / Print)')}</button><button data-act="json" class="ghost w-full !justify-start py-3">💾 ${tx('আমার ডেটা ডাউনলোড (JSON)', 'Download my data (JSON)')}</button><button data-act="notifperm" class="ghost w-full !justify-start py-3">🔔 ${tx('ব্রাউজার রিমাইন্ডার চালু করুন', 'Enable browser reminders')}</button><button data-act="tour" class="ghost w-full !justify-start py-3">❓ ${tx('গাইড দেখুন', 'Show guide')}</button>`,
+    onRender(all) { last = all; insights(); banner(); sync(); findBtn(); if (!once) { once = true; remind(); tour(); } },
+    selBtn(u) { try { let b = $('sel-prof'); if (!u) { b && b.remove(); return; } if (!b) { b = document.createElement('button'); b.id = 'sel-prof'; b.type = 'button'; b.dataset.act = 'viewp'; b.className = 'ghost sm mt-1.5'; $('sel-note').after(b); } b.dataset.uid = u.uid; b.textContent = '👤 ' + tx('প্রোফাইল ও রেকর্ড দেখুন', 'View profile & record'); } catch {} },
+    toolsHtml: () => `<button data-act="people" class="ghost w-full !justify-start py-3">🔎 ${tx('মানুষ খুঁজুন (প্রোফাইল)', 'Find people (profiles)')}</button><button data-act="inbox" class="ghost w-full !justify-start py-3">💬 ${tx('মেসেজ', 'Messages')}</button><button data-act="stmt" class="ghost w-full !justify-start py-3">🧾 ${tx('স্টেটমেন্ট (PDF/প্রিন্ট)', 'Statement (PDF / Print)')}</button><button data-act="json" class="ghost w-full !justify-start py-3">💾 ${tx('আমার ডেটা ডাউনলোড (JSON)', 'Download my data (JSON)')}</button><button data-act="notifperm" class="ghost w-full !justify-start py-3">🔔 ${tx('ব্রাউজার রিমাইন্ডার চালু করুন', 'Enable browser reminders')}</button><button data-act="tour" class="ghost w-full !justify-start py-3">❓ ${tx('গাইড দেখুন', 'Show guide')}</button>`,
     profileTop() {
       const u = auth.currentUser, s = stats(), p = get().profile, since = u.metadata.creationTime ? new Date(u.metadata.creationTime).toLocaleDateString(getLang() === 'bn' ? 'bn-BD' : 'en-GB', { month: 'long', year: 'numeric' }) : '—';
       const cell = (v, l) => `<div class="glass rounded-2xl p-2.5 text-center"><div class="font-extrabold mono">${v}</div><div class="text-[10px] text-mut">${l}</div></div>`;
@@ -150,7 +172,7 @@ export function initExtras(c) {
     profileFields: (p, priv) => `<div class="grid grid-cols-2 gap-3"><div><label class="lb">${tx('অবস্থান', 'Location')}</label><input id="p-loc" class="inp" maxlength="60" value="${esc(p.location || '')}"></div><div><label class="lb">${tx('পেশা', 'Occupation')}</label><input id="p-job" class="inp" maxlength="60" value="${esc(p.occupation || '')}"></div></div><div><label class="lb">${tx('জন্ম তারিখ', 'Birthday')} <span class="text-mut">(${tx('ব্যক্তিগত', 'private')})</span></label><input id="p-dob" type="date" class="inp" value="${esc(priv.dob || '')}"></div>`,
     profileAccount: () => `<div class="sect"><h4 class="font-bold text-sm mb-3">⚙️ ${tx('অ্যাকাউন্ট', 'Account')}</h4><div class="space-y-2.5">${auth.currentUser.emailVerified ? '' : `<button data-act="verify" class="ghost w-full !justify-start">✉️ ${tx('ইমেইল ভেরিফাই করুন', 'Verify email')}</button>`}<button data-act="json" class="ghost w-full !justify-start">💾 ${tx('ডেটা ডাউনলোড', 'Download my data')}</button><button data-act="delacct" class="ghost red w-full !justify-start">🗑 ${tx('অ্যাকাউন্ট মুছুন', 'Delete account')}</button><p class="text-[11px] text-mut"><a href="/privacy.html" class="underline">Privacy</a> · <a href="/terms.html" class="underline">Terms</a> · <a href="/help.html" class="underline">Help</a></p></div></div>`,
     async act(a, ds = {}) {
-      if (a === 'viewp') return viewProfile(ds.uid); if (a === 'chat') return openChat(ds.uid); if (a === 'chatsend') return sendMsg(ds.uid); if (a === 'inbox') return inbox();
+      if (a === 'viewp') return viewProfile(ds.uid); if (a === 'chat') return openChat(ds.uid); if (a === 'chatsend') return sendMsg(ds.uid); if (a === 'inbox') return inbox(); if (a === 'people') return findPeople();
       const u = auth.currentUser, g = get();
       if (a === 'stmt') { closeModal(); statement(); }
       if (a === 'tour') { localStorage.removeItem('haulat_tour'); closeModal(); tour(); }

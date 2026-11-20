@@ -326,7 +326,7 @@ function card(v, i) {
   return `<div class="glass lift rounded-3xl p-4 space-y-3 ${settled ? 'opacity-75' : ''}" style="animation-delay:${Math.min(i * 45, 360)}ms">
     <div class="flex flex-wrap justify-between gap-3">
       <div class="flex gap-3 min-w-0">${av(v.pname, v.pphoto)}<div class="min-w-0 space-y-1">
-        <div class="flex flex-wrap items-center gap-x-2 gap-y-1"><span class="font-extrabold">${nm}</span>${v.puser ? `<span class="text-xs text-mut">@${esc(v.puser)}</span>` : ''}${tags}</div>
+        <div class="flex flex-wrap items-center gap-x-2 gap-y-1">${v.puid ? `<button data-act="viewp" data-uid="${v.puid}" class="font-extrabold text-left hover:underline">${nm}</button>` : `<span class="font-extrabold">${nm}</span>`}${v.puser ? `<span class="text-xs text-mut">@${esc(v.puser)}</span>` : ''}${tags}</div>
         <div class="text-sm">${v.note ? esc(v.note) : `<i class="text-mut">${t('noNote')}</i>`}</div>
         <div class="text-[11px] text-mut flex flex-wrap gap-x-3">${ic('cal', 'w-3 h-3 inline')}<span>${esc(fdate(v.date))}</span>${v.dueDate ? `<span class="${overdue ? 'text-amber-500 font-semibold' : ''}">${t('dueP')}: ${esc(fdate(v.dueDate))}</span>` : ''}</div></div></div>
       <div class="flex gap-2 items-start flex-wrap">${acts}</div></div>
@@ -379,7 +379,7 @@ function setFormType(tp) {
   setSelNote();
 }
 function setSelNote() {
-  const n = $('sel-note'); n.textContent = selected ? t('hintSel', selected.username) : t('hintPersonal'); n.className = 'text-[11px] mt-1.5 ' + (selected ? 'text-emerald-500 font-semibold' : 'text-mut'); X.selBtn(selected);
+  const n = $('sel-note'); n.textContent = selected ? t('hintSel', selected.username) : t('hintPersonal'); n.className = 'text-[11px] mt-1.5 ' + (selected ? 'text-emerald-500 font-semibold' : 'text-mut'); X.selBtn?.(selected);
 }
 $('f-person').oninput = (() => { let tm; return () => { selected = null; setSelNote(); clearTimeout(tm); tm = setTimeout(searchUsers, 280); }; })();
 async function searchUsers() {
@@ -590,7 +590,7 @@ document.addEventListener('click', async ev => {
       case 'clearnotes': await Promise.all(notes.map(n => deleteDoc(doc(db, 'notifications', n.id)))); break;
       case 'delnote': await deleteDoc(doc(db, 'notifications', id)); break;
       case 'tools': showTools(); break;
-      case 'stmt': case 'json': case 'verify': case 'notifperm': case 'tour': case 'delacct': case 'viewp': case 'chat': case 'chatsend': case 'inbox': await X.act(b.dataset.act, b.dataset); break;
+      case 'stmt': case 'json': case 'verify': case 'notifperm': case 'tour': case 'delacct': case 'viewp': case 'chat': case 'chatsend': case 'inbox': case 'people': await X.act(b.dataset.act, b.dataset); break;
       case 'csv': exportCsv(); toast(t('csvDone'), 'ok'); closeModal(); break;
       case 'sumcopy': { const s = summaryText(); closeModal(); if (!s) return toast(t('nothing'), 'info'); await navigator.clipboard.writeText(s); toast(t('copied'), 'ok'); break; }
       case 'profile': showProfile(); break;
