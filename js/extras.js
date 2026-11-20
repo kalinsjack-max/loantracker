@@ -76,18 +76,23 @@ export function initExtras(c) {
     b.forEach(v => { tot += v.amount; paid += v.paid || 0;
       const o = v.rem > 0 && v.dueDate && v.dueDate < today(), lt = v.dueDate && (v.log || []).some(x => (x.k || 'repay') === 'repay' && x.status === 'confirmed' && x.ts > new Date(v.dueDate + 'T23:59:59').getTime());
       if (o) od++; if (o || lt) late++; });
-    return { bCount: b.length, bTotal: rd(tot), bPaid: rd(paid), bSettled: b.filter(v => !v.rem).length, bOverdue: od, bLate: late, lCount: l.length, lTotal: rd(l.reduce((s, v) => s + v.amount, 0)), partners: new Set(a.filter(v => v.puid).map(v => v.puid)).size };
+    return { bCount: b.length, bTotal: rd(tot), bPaid: rd(paid), bSettled: b.filter(v => !v.rem).length, bOverdue: od, bLate: late, lCount: l.length, lTotal: rd(l.reduce((s, v) => s + v.amount, 0)), lPaid: rd(l.reduce((s, v) => s + (v.paid || 0), 0)), partners: new Set(a.filter(v => v.puid).map(v => v.puid)).size };
   }
+  let rt;
   function sync() {
     const me = get().me; if (!me) return;
-    const r = repCalc(), j = me + JSON.stringify(r);
-    if (j !== repJson) { repJson = j; setDoc(doc(db, 'reputation', me), { ...r, updatedAt: Date.now() }).catch(() => {}); }
+    clearTimeout(rt); rt = setTimeout(() => { // wait a moment so entries are fully loaded
+      const r = repCalc(), j = me + JSON.stringify(r);
+      if (j !== repJson) { repJson = j; updateDoc(doc(db, 'users', me), { rep: { ...r, updatedAt: Date.now() } }).catch(e => console.warn('record sync failed', e)); }
+    }, 1500);
     if (subUid !== me) { unsub && unsub(); subUid = me; msgs = [];
       unsub = onSnapshot(query(collection(db, 'messages'), where('participants', 'array-contains', me)), snap => { msgs = snap.docs.map(d => ({ id: d.id, ...d.data() })); chatList(); }, () => {}); }
   }
   const onTime = r => r && r.bCount ? Math.round((r.bCount - r.bLate) / r.bCount * 100) : null;
   function rating(r) {
-    if (!r || !r.bCount) return { c: 'slate', t: tx('🆕 এখনো ধার নেননি', '🆕 No borrowing history yet') };
+    if (!r) return { c: 'slate', t: tx('⏳ রেকর্ড এখনো তৈরি হয়নি', '⏳ Record not generated yet') };
+    if (!r.bCount && !r.lCount) return { c: 'slate', t: tx('🆕 এখনো কোনো নিশ্চিত লেনদেন নেই', '🆕 No confirmed transactions yet') };
+    if (!r.bCount) return { c: 'green', t: tx('🤝 শুধু ধার দিয়েছে, কখনো ধার নেয়নি', '🤝 Has only lent money, never borrowed') };
     const on = onTime(r);
     if (on < 50 || (r.bOverdue && on < 70)) return { c: 'rose', t: tx('⚠️ ঝুঁকিপূর্ণ – বকেয়া/দেরি আছে', '⚠️ Risky – overdue / late payments') };
     if (on >= 90) return { c: 'green', t: tx('✅ নির্ভরযোগ্য', '✅ Reliable') };
@@ -95,16 +100,26 @@ export function initExtras(c) {
   }
   const userDoc = async uid => people.get(uid) || (await getDoc(doc(db, 'users', uid))).data();
   async function viewProfile(uid) {
-    const [p, rs] = await Promise.all([userDoc(uid), getDoc(doc(db, 'reputation', uid)).catch(() => null)]);
+    const me = get().me; let p = null;
+    try { const sn = await getDoc(doc(db, 'users', uid)); p = sn.exists() ? sn.data() : null; } catch { /* fall back to cache */ }
+    p = p || people.get(uid);
     if (!p) return toast(tx('ইউজার পাওয়া যায়নি', 'User not found'), 'info');
-    const r = rs && rs.exists() ? rs.data() : null, g = rating(r), rp = r && r.bTotal ? Math.round(r.bPaid / r.bTotal * 100) : null, on = onTime(r), me = get().me;
+    const r = uid === me ? repCalc() : (p.rep || null), g = rating(r), on = onTime(r), rp = r && r.bTotal ? Math.round(r.bPaid / r.bTotal * 100) : null, lp = r && r.lTotal ? Math.round((r.lPaid || 0) / r.lTotal * 100) : null;
     const cell = (v, l, cls = '') => `<div class="glass rounded-2xl p-2.5 text-center"><div class="font-extrabold mono ${cls}">${v}</div><div class="text-[10px] text-mut">${l}</div></div>`;
+    const mine = uid === me ? [] : acc().filter(v => v.puid === uid), sum = (a, f) => rd(a.reduce((x, v) => x + f(v), 0));
+    const gave = mine.filter(v => v.dir === 'lent'), took = mine.filter(v => v.dir === 'borrowed'), theyOwe = sum(gave, v => v.rem), youOwe = sum(took, v => v.rem);
+    const hist = uid === me ? '' : `<div class="glass rounded-2xl p-3 mb-3"><div class="text-xs font-bold mb-2">🤝 ${tx('আপনার সাথে তার লেনদেন', 'Your history with them')}</div>${mine.length ? `<div class="grid grid-cols-3 gap-2">${cell(mine.length, tx('মোট হিসাব', 'Entries'))}${cell(money(sum(gave, v => v.amount)), tx('আপনি দিয়েছেন', 'You lent'), 'text-emerald-500')}${cell(money(sum(took, v => v.amount)), tx('আপনি নিয়েছেন', 'You borrowed'), 'text-rose-500')}</div><div class="text-[11px] text-mut mt-2">${tx('সে আপনাকে দেবে', 'They owe you')}: <b class="mono">${money(theyOwe)}</b> • ${tx('আপনি তাকে দেবেন', 'You owe them')}: <b class="mono">${money(youOwe)}</b></div>` : `<p class="text-xs text-mut">${tx('আপনাদের মধ্যে এখনো কোনো নিশ্চিত হিসাব নেই।', 'You have no confirmed entries with this person yet.')}</p>`}</div>`;
+    const deals = r ? (r.bCount || 0) + (r.lCount || 0) : 0;
     openModal(`<div class="flex justify-between items-start mb-3"><h3 class="font-extrabold">👤 ${tx('প্রোফাইল', 'Profile')}</h3><button data-act="close" class="ghost sm" aria-label="close">✕</button></div>
     <div class="flex items-center gap-4 mb-3">${av(p.name, p.photo, 'xl')}<div class="min-w-0"><div class="text-lg font-extrabold">${esc(p.name)}</div><div class="text-xs text-mut">@${esc(p.username)}</div>${p.bio ? `<div class="text-sm mt-1">${esc(p.bio)}</div>` : ''}</div></div>
-    <div class="flex flex-wrap gap-2 mb-4 text-[11px]">${p.location ? `<span class="tag slate">📍 ${esc(p.location)}</span>` : `<span class="tag slate">📍 ${tx('অবস্থান দেওয়া নেই', 'Location not set')}</span>`}${p.occupation ? `<span class="tag slate">💼 ${esc(p.occupation)}</span>` : ''}</div>
+    <div class="flex flex-wrap gap-2 mb-4 text-[11px]"><span class="tag slate">📍 ${p.location ? esc(p.location) : tx('অবস্থান দেওয়া নেই', 'Location not set')}</span>${p.occupation ? `<span class="tag slate">💼 ${esc(p.occupation)}</span>` : ''}</div>
+    ${hist}
     <div class="glass rounded-2xl p-3 mb-3"><div class="text-xs font-bold mb-2">${tx('পরিশোধের রেকর্ড', 'Repayment record')}</div><span class="tag ${g.c} !text-xs">${g.t}</span>
-      ${r && r.bCount ? `<div class="grid grid-cols-4 gap-2 mt-3">${cell(r.bCount, tx('ধার নিয়েছে', 'Borrowed'))}${cell(on + '%', tx('সময়মতো', 'On time'), on >= 90 ? 'text-emerald-500' : on < 60 ? 'text-rose-500' : '')}${cell(rp + '%', tx('পরিশোধ', 'Repaid'))}${cell(r.bOverdue, tx('এখন বকেয়া', 'Overdue now'), r.bOverdue ? 'text-rose-500' : '')}</div><div class="text-[11px] text-mut mt-2">${tx('মোট ধার', 'Total borrowed')}: ${money(r.bTotal)} • ${tx('পরিশোধ', 'Repaid')}: ${money(r.bPaid)} • ${tx('নিষ্পন্ন', 'Settled')}: ${r.bSettled}</div>` : ''}
-      ${r && r.lCount ? `<div class="text-[11px] text-mut mt-1">${tx('ধার দিয়েছে', 'Has lent')}: ${r.lCount}${tx('টি', ' loans')} (${money(r.lTotal)})</div>` : ''}
+      ${deals ? `<div class="text-[11px] text-mut mt-2">${tx('মোট নিশ্চিত লেনদেন', 'Total confirmed deals')}: <b>${deals}</b> • ${tx('মোট ' + r.partners + ' জনের সাথে', 'with ' + r.partners + ' people')}</div>` : ''}
+      ${r && r.bCount ? `<div class="text-[11px] font-bold mt-3 mb-1.5">⬇️ ${tx('ধার নিয়েছে', 'As borrower')}</div><div class="grid grid-cols-4 gap-2">${cell(r.bCount, tx('বার', 'Loans'))}${cell(on + '%', tx('সময়মতো', 'On time'), on >= 90 ? 'text-emerald-500' : on < 60 ? 'text-rose-500' : '')}${cell(rp + '%', tx('পরিশোধ', 'Repaid'))}${cell(r.bOverdue, tx('এখন বকেয়া', 'Overdue now'), r.bOverdue ? 'text-rose-500' : '')}</div><div class="text-[11px] text-mut mt-1.5">${tx('মোট ধার', 'Borrowed')}: ${money(r.bTotal)} • ${tx('পরিশোধ', 'Repaid')}: ${money(r.bPaid)} • ${tx('নিষ্পন্ন', 'Settled')}: ${r.bSettled}/${r.bCount}</div>` : ''}
+      ${r && r.lCount ? `<div class="text-[11px] font-bold mt-3 mb-1.5">⬆️ ${tx('ধার দিয়েছে', 'As lender')}</div><div class="grid grid-cols-3 gap-2">${cell(r.lCount, tx('বার', 'Loans'))}${cell(money(r.lTotal), tx('মোট দিয়েছে', 'Total lent'))}${cell((lp || 0) + '%', tx('ফেরত পেয়েছে', 'Recovered'))}</div>` : ''}
+      ${r && !deals ? `<p class="text-[11px] text-mut mt-2">${tx('এই ইউজারের এখনো কোনো দুই-পক্ষ-নিশ্চিত লেনদেন নেই।', 'This user has no two-sided confirmed transactions yet.')}</p>` : ''}
+      ${!r ? `<p class="text-[11px] text-mut mt-2">${tx('ইউজার অ্যাপের নতুন ভার্সনে একবার লগইন করলেই রেকর্ড দেখা যাবে।', 'The record appears once this user opens the updated app.')}</p>` : ''}
       <p class="text-[10px] text-mut mt-2">${tx('শুধু দুই পক্ষ নিশ্চিত করেছে এমন হিসাব থেকে তৈরি। ব্যক্তিগত হিসাব ধরা হয় না।', 'Based only on entries confirmed by both sides. Personal entries are not counted.')}</p></div>
     ${uid !== me ? `<button data-act="chat" data-uid="${uid}" class="btn w-full py-3">💬 ${tx('মেসেজ পাঠান', 'Send message')}</button>` : ''}`, 'viewprofile');
   }
