@@ -17,14 +17,14 @@ export function initExtras(c) {
 
   function insights() {
     const box = $('insights'); if (!box) return;
-    const months = [], now = new Date();
-    for (let i = 5; i >= 0; i--) { const d = new Date(now.getFullYear(), now.getMonth() - i, 1); months.push({ k: d.toISOString().slice(0, 7), l: d.toLocaleString(getLang() === 'bn' ? 'bn-BD' : 'en', { month: 'short' }), a: 0, b: 0 }); }
+    const months = [], now = new Date(), key = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+    for (let i = 5; i >= 0; i--) { const d = new Date(now.getFullYear(), now.getMonth() - i, 1); months.push({ k: key(d), l: d.toLocaleString(getLang() === 'bn' ? 'bn-BD' : 'en', { month: 'short' }), a: 0, b: 0 }); }
     acc().forEach(v => { const m = months.find(x => x.k === (v.date || '').slice(0, 7)); if (m) m[v.dir === 'lent' ? 'a' : 'b'] += v.amount; });
-    const mx = Math.max(1, ...months.map(m => Math.max(m.a, m.b)));
-    const bars = months.map((m, i) => { const x = 14 + i * 48, h1 = m.a / mx * 80, h2 = m.b / mx * 80;
-      return `<rect x="${x}" y="${95 - h1}" width="16" height="${h1}" rx="3" fill="#10b981"/><rect x="${x + 18}" y="${95 - h2}" width="16" height="${h2}" rx="3" fill="#f43f5e"/><text x="${x + 17}" y="110" font-size="9" text-anchor="middle" fill="currentColor" opacity=".6">${m.l}</text>`; }).join('');
+    const mx = Math.max(1, ...months.map(m => Math.max(m.a, m.b))), short = n => n >= 1e5 ? (n / 1e5).toFixed(1) + 'L' : n >= 1e3 ? (n / 1e3).toFixed(1).replace('.0', '') + 'k' : '' + n;
+    const bars = months.map((m, i) => { const x = 20 + i * 96, h1 = m.a / mx * 90, h2 = m.b / mx * 90;
+      return `<rect x="${x}" y="${115 - h1}" width="28" height="${h1}" rx="5" fill="#10b981"/><rect x="${x + 32}" y="${115 - h2}" width="28" height="${h2}" rx="5" fill="#f43f5e"/>${m.a ? `<text x="${x + 14}" y="${109 - h1}" font-size="11" text-anchor="middle" fill="#10b981">${short(m.a)}</text>` : ''}${m.b ? `<text x="${x + 46}" y="${109 - h2}" font-size="11" text-anchor="middle" fill="#f43f5e">${short(m.b)}</text>` : ''}<text x="${x + 30}" y="136" font-size="12" text-anchor="middle" fill="currentColor" opacity=".65">${m.l}</text>`; }).join('');
     const od = overdue(), sn = soon(), odSum = od.reduce((s, v) => s + v.rem, 0);
-    box.innerHTML = `<div class="glass rounded-3xl p-5 md:col-span-2"><div class="text-xs font-bold mb-2">📊 ${tx('মাসিক লেনদেন (শেষ ৬ মাস)', 'Monthly activity (last 6 months)')} <span class="text-emerald-500">■ ${tx('দিয়েছি', 'Lent')}</span> <span class="text-rose-500">■ ${tx('নিয়েছি', 'Borrowed')}</span></div><svg viewBox="0 0 300 116" class="w-full">${bars}</svg></div>
+    box.innerHTML = `<div class="glass rounded-3xl p-5 md:col-span-2"><div class="text-xs font-bold mb-2">📊 ${tx('মাসিক লেনদেন (শেষ ৬ মাস)', 'Monthly activity (last 6 months)')} <span class="text-emerald-500">■ ${tx('দিয়েছি', 'Lent')}</span> <span class="text-rose-500">■ ${tx('নিয়েছি', 'Borrowed')}</span></div><svg viewBox="0 0 600 145" class="w-full" style="max-height:200px">${bars}</svg></div>
     <div class="glass rounded-3xl p-5"><div class="text-xs font-bold text-amber-500">⏰ ${tx('মেয়াদোত্তীর্ণ ও আসন্ন', 'Overdue & upcoming')}</div>
       <div class="text-2xl font-extrabold mono mt-2 ${od.length ? 'text-rose-500' : ''}">${money(odSum)}</div>
       <div class="text-xs text-mut mt-1">${od.length ? tx(od.length + 'টি বকেয়া', od.length + ' overdue') : tx('কোনো বকেয়া নেই ✓', 'Nothing overdue ✓')}</div>
