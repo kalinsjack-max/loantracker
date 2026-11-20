@@ -3,6 +3,7 @@ import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWith
   signOut, sendPasswordResetEmail, EmailAuthProvider, reauthenticateWithCredential, updatePassword } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFirestore, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, collection, query, where, onSnapshot,
   runTransaction, arrayUnion, increment, limit } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { initExtras } from "./extras.js";
 import { firebaseConfig } from "./firebase-config.js";
 import { t, getLang, setLang, applyI18n, ic, hydrate } from "./i18n.js";
 
@@ -242,7 +243,7 @@ function render() {
   $('ring-o').style.strokeDashoffset = 138.23 * (1 - opct / 100); $('ring-o-t').textContent = opct + '%';
   const sum = lent + owed, ls = sum ? Math.round(lent / sum * 100) : 50;
   $('bar-l').style.width = ls + '%'; $('bar-o').style.width = (100 - ls) + '%';
-  renderActions(all);
+  renderActions(all); X.onRender(all);
   const pend = all.filter(v => v.status === 'pending').length;
   $('st-pend').textContent = pend ? t('stPend', pend) : '';
 
@@ -474,7 +475,7 @@ function showNotifs() {
   openModal(`${mhead('bell', t('notifTitle'))}${notes.length ? `<div class="flex justify-end gap-2 mb-3"><button data-act="readall" class="ghost sm">${t('markAll')}</button><button data-act="clearnotes" class="ghost sm red">${t('clearAll')}</button></div>` : ''}<div class="space-y-2.5">${rows}</div>`, 'notifs');
 }
 function showTools() {
-  openModal(`${mhead('tools', t('tools'), 'sky')}<div class="space-y-2.5"><button data-act="csv" class="ghost w-full !justify-start py-3">${ic('download')}${t('exportCsv')}</button><button data-act="sumcopy" class="ghost w-full !justify-start py-3">${ic('copy')}${t('copySum')}</button></div>`, 'tools');
+  openModal(`${mhead('tools', t('tools'), 'sky')}<div class="space-y-2.5"><button data-act="csv" class="ghost w-full !justify-start py-3">${ic('download')}${t('exportCsv')}</button><button data-act="sumcopy" class="ghost w-full !justify-start py-3">${ic('copy')}${t('copySum')}</button>${X.toolsHtml()}</div>`, 'tools');
 }
 function showPay(id) {
   const v = V(entries.find(x => x.id === id)); payId = id; const mx = Math.max(0, r2(v.rem - v.pend)), recv = !v.puid && v.dir === 'lent';
@@ -510,7 +511,7 @@ function showEdit(id) {
 function showProfile() {
   draftPhoto = profile.photo || '';
   const hasPass = auth.currentUser.providerData.some(p => p.providerId === 'password');
-  openModal(`${mhead('user', t('pTitle'))}
+  openModal(`${mhead('user', t('pTitle'))}${X.profileTop()}
     <div class="flex items-center gap-4 mb-4"><div id="p-av">${av(profile.name, draftPhoto, 'xl')}</div>
       <div class="flex flex-col gap-2"><label class="ghost cursor-pointer">${ic('camera')}${t('pPhoto')}<input id="p-file" type="file" accept="image/*" class="hidden"></label><button data-act="rmphoto" class="ghost sm red">${t('pRemove')}</button></div></div>
     <div class="space-y-3">
@@ -518,13 +519,14 @@ function showProfile() {
       <div><label class="lb">${t('pName')}</label><input id="p-name" class="inp" value="${esc(profile.name)}"></div>
       <div><label class="lb">${t('pUser')}</label><input id="p-user" class="inp" value="${esc(profile.username)}" autocapitalize="none"><p class="text-[11px] text-mut mt-1">${t('pUserHint')}</p></div>
       <div><label class="lb">${t('pBio')}</label><input id="p-bio" class="inp" maxlength="120" value="${esc(profile.bio || '')}"></div>
+      ${X.profileFields(profile, priv)}
       <div><label class="lb">${t('pPhone')}</label><input id="p-phone" type="tel" class="inp" value="${esc(priv.phone || '')}"></div>
       <div><label class="lb">${t('pAddr')}</label><textarea id="p-addr" rows="2" class="inp">${esc(priv.address || '')}</textarea><p class="text-[11px] text-mut mt-1">${t('pPrivate')}</p></div>
       <p id="p-err" class="text-xs text-rose-400 min-h-[1rem]"></p>
       <div class="flex justify-between gap-2"><button data-act="logout" class="ghost red">${ic('logout')}${t('logout')}</button><button data-act="saveprofile" class="btn">${ic('check')}${t('save')}</button></div></div>
     <div class="sect"><h4 class="font-bold text-sm flex items-center gap-2 mb-3">${ic('lock')}${t('pSec')}</h4>
     ${hasPass ? `<div class="space-y-3"><input id="pw-cur" type="password" class="inp" placeholder="${t('curPass')}" autocomplete="current-password"><input id="pw-new" type="password" class="inp" placeholder="${t('newPass')}" autocomplete="new-password"><input id="pw-new2" type="password" class="inp" placeholder="${t('confPass')}" autocomplete="new-password">
-      <p id="pw-err" class="text-xs min-h-[1rem]"></p><button data-act="chpass" class="btn w-full">${t('chPass')}</button></div>` : `<p class="text-xs text-mut">${t('googleNoPass')}</p>`}</div>`, 'profile');
+      <p id="pw-err" class="text-xs min-h-[1rem]"></p><button data-act="chpass" class="btn w-full">${t('chPass')}</button></div>` : `<p class="text-xs text-mut">${t('googleNoPass')}</p>`}</div>${X.profileAccount()}`, 'profile');
 }
 function resizePhoto(file) {
   return new Promise((res, rej) => {
@@ -586,6 +588,7 @@ document.addEventListener('click', async ev => {
       case 'clearnotes': await Promise.all(notes.map(n => deleteDoc(doc(db, 'notifications', n.id)))); break;
       case 'delnote': await deleteDoc(doc(db, 'notifications', id)); break;
       case 'tools': showTools(); break;
+      case 'stmt': case 'json': case 'verify': case 'notifperm': case 'tour': case 'delacct': await X.act(b.dataset.act); break;
       case 'csv': exportCsv(); toast(t('csvDone'), 'ok'); closeModal(); break;
       case 'sumcopy': { const s = summaryText(); closeModal(); if (!s) return toast(t('nothing'), 'info'); await navigator.clipboard.writeText(s); toast(t('copied'), 'ok'); break; }
       case 'profile': showProfile(); break;
@@ -593,8 +596,8 @@ document.addEventListener('click', async ev => {
       case 'saveprofile': {
         try {
           await claim(me, $('p-user').value, $('p-name').value.trim() || profile.name);
-          await updateDoc(doc(db, 'users', me), { bio: $('p-bio').value.trim(), photo: draftPhoto || '' });
-          priv = { phone: $('p-phone').value.trim(), address: $('p-addr').value.trim() }; await setDoc(doc(db, 'private', me), priv);
+          await updateDoc(doc(db, 'users', me), { bio: $('p-bio').value.trim(), location: $('p-loc').value.trim(), occupation: $('p-job').value.trim(), photo: draftPhoto || '' });
+          priv = { phone: $('p-phone').value.trim(), address: $('p-addr').value.trim(), dob: $('p-dob').value }; await setDoc(doc(db, 'private', me), priv);
           profile = (await getDoc(doc(db, 'users', me))).data(); people.set(me, profile); headerInfo(); closeModal(); render(); toast(t('pSaved'), 'ok');
         } catch (err) { $('p-err').textContent = appErr(err); }
         break;
@@ -672,3 +675,5 @@ $('q').oninput = () => { animNext = true; render(); };
 
 /* ================= boot ================= */
 hydrate(); applyI18n(); applyAuthMode(); applyTheme(localStorage.getItem('haulat_theme') || 'dark');
+
+const X = initExtras({ auth, db, esc, money, getLang, toast, openModal, closeModal, signOut, get: () => ({ entries, profile, priv }) });
