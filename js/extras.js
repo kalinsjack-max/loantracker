@@ -76,7 +76,10 @@ export function initExtras(c) {
     b.forEach(v => { tot += v.amount; paid += v.paid || 0;
       const o = v.rem > 0 && v.dueDate && v.dueDate < today(), lt = v.dueDate && (v.log || []).some(x => (x.k || 'repay') === 'repay' && x.status === 'confirmed' && x.ts > new Date(v.dueDate + 'T23:59:59').getTime());
       if (o) od++; if (o || lt) late++; });
-    return { bCount: b.length, bTotal: rd(tot), bPaid: rd(paid), bSettled: b.filter(v => !v.rem).length, bOverdue: od, bLate: late, lCount: l.length, lTotal: rd(l.reduce((s, v) => s + v.amount, 0)), lPaid: rd(l.reduce((s, v) => s + (v.paid || 0), 0)), partners: new Set(a.filter(v => v.puid).map(v => v.puid)).size };
+    const recent = a.filter(v => v.puid).sort((x, y) => (y.date || '').localeCompare(x.date || '')).slice(0, 8).map(v => {
+      const bor = v.dir === 'borrowed', od = bor && v.rem > 0 && v.dueDate && v.dueDate < today(), lt = bor && v.dueDate && (v.log || []).some(x => (x.k || 'repay') === 'repay' && x.status === 'confirmed' && x.ts > new Date(v.dueDate + 'T23:59:59').getTime());
+      return { d: bor ? 'b' : 'l', a: v.amount, p: rd(v.paid || 0), s: v.rem ? (od ? 'o' : 'a') : 's', l: lt ? 1 : 0, t: v.date || '' }; });
+    return { recent, bCount: b.length, bTotal: rd(tot), bPaid: rd(paid), bSettled: b.filter(v => !v.rem).length, bOverdue: od, bLate: late, lCount: l.length, lTotal: rd(l.reduce((s, v) => s + v.amount, 0)), lPaid: rd(l.reduce((s, v) => s + (v.paid || 0), 0)), partners: new Set(a.filter(v => v.puid).map(v => v.puid)).size };
   }
   let rt;
   function sync() {
@@ -85,7 +88,7 @@ export function initExtras(c) {
       const r = repCalc(), j = me + JSON.stringify(r);
       if (j !== repJson) { repJson = j; updateDoc(doc(db, 'users', me), { rep: { ...r, updatedAt: Date.now() } }).catch(e => console.warn('record sync failed', e)); }
     }, 1500);
-    if (subUid !== me) { unsub && unsub(); subUid = me; msgs = [];
+    if (subUid !== me) { unsub && unsub(); unsubSt && unsubSt(); subUid = me; msgs = []; myStatus = 'active'; myReason = ''; isAdmin = false; watchMe(me);
       unsub = onSnapshot(query(collection(db, 'messages'), where('participants', 'array-contains', me)), snap => { msgs = snap.docs.map(d => ({ id: d.id, ...d.data() })); chatList(); }, () => {}); }
   }
   const onTime = r => r && r.bCount ? Math.round((r.bCount - r.bLate) / r.bCount * 100) : null;
@@ -113,15 +116,17 @@ export function initExtras(c) {
     openModal(`<div class="flex justify-between items-start mb-3"><h3 class="font-extrabold">👤 ${tx('প্রোফাইল', 'Profile')}</h3><button data-act="close" class="ghost sm" aria-label="close">✕</button></div>
     <div class="flex items-center gap-4 mb-3">${av(p.name, p.photo, 'xl')}<div class="min-w-0"><div class="text-lg font-extrabold">${esc(p.name)}</div><div class="text-xs text-mut">@${esc(p.username)}</div>${p.bio ? `<div class="text-sm mt-1">${esc(p.bio)}</div>` : ''}</div></div>
     <div class="flex flex-wrap gap-2 mb-4 text-[11px]"><span class="tag slate">📍 ${p.location ? esc(p.location) : tx('অবস্থান দেওয়া নেই', 'Location not set')}</span>${p.occupation ? `<span class="tag slate">💼 ${esc(p.occupation)}</span>` : ''}</div>
+    ${stLabel(p.status) ? `<div class="mb-3"><span class="tag rose !text-xs">${stLabel(p.status)}</span>${p.statusReason ? ` <span class="text-[11px] text-mut">${esc(p.statusReason)}</span>` : ''}</div>` : ''}
     ${hist}
-    <div class="glass rounded-2xl p-3 mb-3"><div class="text-xs font-bold mb-2">${tx('পরিশোধের রেকর্ড', 'Repayment record')}</div><span class="tag ${g.c} !text-xs">${g.t}</span>
+    <div class="glass rounded-2xl p-3 mb-3"><div class="text-xs font-bold mb-2">${tx('সবার সাথে তার পরিশোধের রেকর্ড', 'His/her record with everyone')}</div><span class="tag ${g.c} !text-xs">${g.t}</span>
       ${deals ? `<div class="text-[11px] text-mut mt-2">${tx('মোট নিশ্চিত লেনদেন', 'Total confirmed deals')}: <b>${deals}</b> • ${tx('মোট ' + r.partners + ' জনের সাথে', 'with ' + r.partners + ' people')}</div>` : ''}
       ${r && r.bCount ? `<div class="text-[11px] font-bold mt-3 mb-1.5">⬇️ ${tx('ধার নিয়েছে', 'As borrower')}</div><div class="grid grid-cols-4 gap-2">${cell(r.bCount, tx('বার', 'Loans'))}${cell(on + '%', tx('সময়মতো', 'On time'), on >= 90 ? 'text-emerald-500' : on < 60 ? 'text-rose-500' : '')}${cell(rp + '%', tx('পরিশোধ', 'Repaid'))}${cell(r.bOverdue, tx('এখন বকেয়া', 'Overdue now'), r.bOverdue ? 'text-rose-500' : '')}</div><div class="text-[11px] text-mut mt-1.5">${tx('মোট ধার', 'Borrowed')}: ${money(r.bTotal)} • ${tx('পরিশোধ', 'Repaid')}: ${money(r.bPaid)} • ${tx('নিষ্পন্ন', 'Settled')}: ${r.bSettled}/${r.bCount}</div>` : ''}
       ${r && r.lCount ? `<div class="text-[11px] font-bold mt-3 mb-1.5">⬆️ ${tx('ধার দিয়েছে', 'As lender')}</div><div class="grid grid-cols-3 gap-2">${cell(r.lCount, tx('বার', 'Loans'))}${cell(money(r.lTotal), tx('মোট দিয়েছে', 'Total lent'))}${cell((lp || 0) + '%', tx('ফেরত পেয়েছে', 'Recovered'))}</div>` : ''}
+      ${r && r.recent && r.recent.length ? `<div class="text-[11px] font-bold mt-3 mb-1.5">🕘 ${tx('সাম্প্রতিক লেনদেন (নাম ছাড়া)', 'Recent deals (names hidden)')}</div><div class="space-y-1">${r.recent.map(x => `<div class="flex justify-between gap-2 text-[11px]"><span>${x.d === 'b' ? '⬇️ ' + tx('নিয়েছে', 'Borrowed') : '⬆️ ' + tx('দিয়েছে', 'Lent')} <b class="mono">${money(x.a)}</b> <span class="text-mut">${esc(x.t)}</span></span><span class="${x.s === 'o' || x.l ? 'text-rose-500' : x.s === 's' ? 'text-emerald-500' : 'text-mut'}">${x.s === 's' ? (x.l ? tx('✔ নিষ্পন্ন (দেরিতে)', '✔ Settled (late)') : tx('✔ নিষ্পন্ন', '✔ Settled')) : x.s === 'o' ? tx('⏰ বকেয়া', '⏰ Overdue') : tx('চলমান', 'Active') + ' ' + money(x.p) + '/' + money(x.a)}</span></div>`).join('')}</div>` : ''}
       ${r && !deals ? `<p class="text-[11px] text-mut mt-2">${tx('এই ইউজারের এখনো কোনো দুই-পক্ষ-নিশ্চিত লেনদেন নেই।', 'This user has no two-sided confirmed transactions yet.')}</p>` : ''}
       ${!r ? `<p class="text-[11px] text-mut mt-2">${tx('ইউজার অ্যাপের নতুন ভার্সনে একবার লগইন করলেই রেকর্ড দেখা যাবে।', 'The record appears once this user opens the updated app.')}</p>` : ''}
-      <p class="text-[10px] text-mut mt-2">${tx('শুধু দুই পক্ষ নিশ্চিত করেছে এমন হিসাব থেকে তৈরি। ব্যক্তিগত হিসাব ধরা হয় না।', 'Based only on entries confirmed by both sides. Personal entries are not counted.')}</p></div>
-    ${uid !== me ? `<button data-act="chat" data-uid="${uid}" class="btn w-full py-3">💬 ${tx('মেসেজ পাঠান', 'Send message')}</button>` : ''}`, 'viewprofile');
+      <p class="text-[10px] text-mut mt-2">${tx('এই ইউজারের সব মানুষের সাথে দুই-পক্ষ-নিশ্চিত হিসাব থেকে তৈরি (শুধু আপনার সাথে নয়)। কারও নাম দেখানো হয় না; ব্যক্তিগত হিসাব ধরা হয় না।', 'Built from all of this user’s two-sided confirmed deals with everyone (not just you). Other people’s names are hidden; personal entries are not counted.')}</p></div>
+    ${uid !== me ? `<div class="flex gap-2"><button data-act="chat" data-uid="${uid}" class="btn flex-1 py-3">💬 ${tx('মেসেজ পাঠান', 'Send message')}</button><button data-act="report" data-uid="${uid}" class="ghost red py-3">🚩 ${tx('রিপোর্ট', 'Report')}</button></div>` : ''}`, 'viewprofile');
   }
 
   /* ---------- messages ---------- */
@@ -168,14 +173,109 @@ export function initExtras(c) {
     const q = el.value.trim().toLowerCase().replace(/^@/, ''); if (!q) { box.innerHTML = ''; return; }
     const run = f => getDocs(query(collection(db, 'users'), where(f, '>=', q), where(f, '<=', q + '\uf8ff'), limit(8)));
     try {
-      const [a, b] = await Promise.all([run('usernameLower'), run('nameLower')]), m = new Map(); [...a.docs, ...b.docs].forEach(d => m.set(d.id, d.data()));
+      const [a, b] = await Promise.all([run('usernameLower'), run('nameLower')]), m = new Map(); [...a.docs, ...b.docs].forEach(d => d.data().status !== 'banned' && m.set(d.id, d.data()));
       box.innerHTML = m.size ? [...m.entries()].map(([id, u]) => `<button data-act="viewp" data-uid="${id}" class="ghost w-full !justify-start gap-3 py-2.5 text-left">${av(u.name, u.photo, 'sm')}<div class="min-w-0"><div class="font-bold text-sm truncate">${esc(u.name)}</div><div class="text-[11px] text-mut">@${esc(u.username)}${u.location ? ' · 📍 ' + esc(u.location) : ''}</div></div></button>`).join('') : `<p class="text-xs text-mut text-center py-4">${tx('কাউকে পাওয়া যায়নি', 'No one found')}</p>`;
     } catch { box.innerHTML = `<p class="text-xs text-rose-400 text-center py-4">${tx('খুঁজতে সমস্যা হয়েছে', 'Search failed')}</p>`; }
   }
   document.addEventListener('input', e => { if (e.target.id === 'fp-in') { clearTimeout(fpTm); fpTm = setTimeout(fpSearch, 280); } });
 
+
+  /* ---------- status (flag / freeze / ban) + admin + reports ---------- */
+  let isAdmin = false, myStatus = 'active', myReason = '', unsubSt = null;
+  const stLabel = s => ({ flagged: tx('🚩 অ্যাডমিন ফ্ল্যাগ করেছে', '🚩 Flagged by admin'), frozen: tx('🧊 অ্যাকাউন্ট ফ্রিজড', '🧊 Account frozen'), banned: tx('🚫 ব্যান করা হয়েছে', '🚫 Banned') }[s] || '');
+  const REASONS = { notpay: ['টাকা ফেরত দিচ্ছে না', 'Not repaying money'], fake: ['ভুয়া/মিথ্যা হিসাব', 'False records'], scam: ['প্রতারণা', 'Scam / fraud'], harass: ['হয়রানি / অশালীন আচরণ', 'Harassment / abuse'], other: ['অন্যান্য', 'Other'] };
+  const rLabel = k => (REASONS[k] || REASONS.other)[getLang() === 'bn' ? 0 : 1];
+
+  function watchMe(me) {
+    unsubSt = onSnapshot(doc(db, 'users', me), sn => { const d = sn.data() || {}; myStatus = d.status || 'active'; myReason = d.statusReason || ''; enforce(); }, () => {});
+    getDoc(doc(db, 'admins', me)).then(sn => { isAdmin = sn.exists(); adminBtn(); }).catch(() => {});
+  }
+  function enforce() {
+    const wall = $('ban-wall'); let bar = $('stat-bar'), css = $('frz-css');
+    if (myStatus === 'banned') {
+      if (!wall) { const d = document.createElement('div'); d.id = 'ban-wall'; d.className = 'fixed inset-0 z-[100] flex items-center justify-center p-6 text-center'; d.style.background = 'var(--bg,#060913)';
+        d.innerHTML = `<div class="glass rounded-3xl p-8 max-w-sm space-y-3"><div class="text-5xl">🚫</div><h2 class="text-xl font-extrabold">${tx('আপনার অ্যাকাউন্ট ব্যান করা হয়েছে', 'Your account has been banned')}</h2>${myReason ? `<p class="text-sm text-mut">${esc(myReason)}</p>` : ''}<button data-act="logout" class="btn w-full">${tx('লগআউট', 'Log out')}</button></div>`; document.body.appendChild(d); }
+      return;
+    }
+    wall && wall.remove();
+    if (myStatus === 'frozen' && !css) { css = document.createElement('style'); css.id = 'frz-css'; css.textContent = '#add-form,[data-act="pay"],[data-act="top"],[data-act="edit"],[data-act="del"],[data-act="accept"],[data-act="reject"],[data-act="remind"]{display:none!important}'; document.head.appendChild(css); }
+    if (myStatus !== 'frozen' && css) css.remove();
+    if (myStatus === 'active') { bar && bar.remove(); return; }
+    if (!bar) { bar = document.createElement('div'); bar.id = 'stat-bar'; bar.className = 'glass rounded-2xl p-3 mb-4 text-xs'; const st = $('stats'); st && st.before(bar); }
+    bar.innerHTML = `<b>${stLabel(myStatus)}</b>${myStatus === 'frozen' ? ' — ' + tx('আপনি এখন নতুন হিসাব, পরিশোধ বা মেসেজ করতে পারবেন না।', 'You cannot add entries, make payments or send messages for now.') : ''}${myReason ? `<div class="text-mut mt-1">${esc(myReason)}</div>` : ''}`;
+  }
+  function adminBtn() {
+    if (!isAdmin || $('adm-btn')) return; const anchor = $('fp-btn') || document.querySelector('header [data-act="tools"]'); if (!anchor) return;
+    const b = document.createElement('button'); b.id = 'adm-btn'; b.dataset.act = 'admin'; b.className = 'ghost'; b.textContent = '🛡️'; b.title = 'Admin'; b.setAttribute('aria-label', 'admin'); anchor.before(b);
+  }
+  function reportForm(uid) {
+    userDoc(uid).then(p => openModal(`<div class="flex justify-between items-center mb-3"><h3 class="font-extrabold">🚩 ${tx('রিপোর্ট করুন', 'Report user')}</h3><button data-act="close" class="ghost sm" aria-label="close">✕</button></div>
+      <p class="text-sm mb-3">${esc((p || {}).name || '')} <span class="text-mut text-xs">@${esc((p || {}).username || '')}</span></p>
+      <label class="lb">${tx('কারণ', 'Reason')}</label><select id="rp-reason" class="inp mb-3">${Object.keys(REASONS).map(k => `<option value="${k}">${rLabel(k)}</option>`).join('')}</select>
+      <label class="lb">${tx('বিস্তারিত', 'Details')} <span class="text-mut">(${tx('সর্বোচ্চ ৫০০ অক্ষর', 'max 500 chars')})</span></label><textarea id="rp-text" rows="4" maxlength="500" class="inp mb-3" placeholder="${tx('কী ঘটেছে লিখুন (তারিখ, পরিমাণ ইত্যাদি)', 'What happened? (dates, amounts, etc.)')}"></textarea>
+      <p class="text-[11px] text-mut mb-3">${tx('মিথ্যা রিপোর্ট করলে আপনার অ্যাকাউন্টের ব্যবস্থা নেওয়া হতে পারে।', 'False reports may lead to action against your account.')}</p>
+      <button data-act="reportsend" data-uid="${uid}" class="btn w-full py-3">${tx('রিপোর্ট পাঠান', 'Send report')}</button>`, 'report'));
+  }
+  async function reportSend(uid) {
+    const g = get(), me = g.me, tp = await userDoc(uid) || {}, reason = $('rp-reason').value, details = $('rp-text').value.trim().slice(0, 500);
+    try { await setDoc(doc(db, 'reports', `${me}_${uid}`), { reporterUid: me, reporterName: g.profile.name, reporterUsername: g.profile.username, targetUid: uid, targetName: tp.name || '', targetUsername: tp.username || '', reason, details, status: 'open', createdAt: Date.now() }); closeModal(); toast(tx('রিপোর্ট পাঠানো হয়েছে। অ্যাডমিন দেখবেন।', 'Report sent. An admin will review it.'), 'ok'); }
+    catch { toast(tx('রিপোর্ট পাঠানো যায়নি (আগেই রিপোর্ট করে থাকতে পারেন)', 'Could not send report (you may have already reported this user)'), 'info'); }
+  }
+
+  const uBtns = (uid, rid) => `<button data-act="viewp" data-uid="${uid}" class="ghost sm">👤</button><button data-act="admentries" data-uid="${uid}" class="ghost sm">📄 ${tx('হিসাব', 'Entries')}</button><button data-act="admset" data-uid="${uid}" data-v="flagged" data-rid="${rid || ''}" class="ghost sm">🚩 ${tx('ফ্ল্যাগ', 'Flag')}</button><button data-act="admset" data-uid="${uid}" data-v="frozen" data-rid="${rid || ''}" class="ghost sm">🧊 ${tx('ফ্রিজ', 'Freeze')}</button><button data-act="admset" data-uid="${uid}" data-v="banned" data-rid="${rid || ''}" class="ghost sm red">🚫 ${tx('ব্যান', 'Ban')}</button><button data-act="admset" data-uid="${uid}" data-v="active" data-rid="${rid || ''}" class="ghost sm">✅ ${tx('সক্রিয়', 'Restore')}</button>${rid ? `<button data-act="admdismiss" data-rid="${rid}" class="ghost sm">🗑 ${tx('খারিজ', 'Dismiss')}</button>` : ''}`;
+  function adminPanel() {
+    openModal(`<div class="flex justify-between items-center mb-3"><h3 class="font-extrabold">🛡️ Admin</h3><button data-act="close" class="ghost sm" aria-label="close">✕</button></div>
+      <div class="seg mb-3"><button data-act="admtab" data-v="open" class="tab on">${tx('নতুন রিপোর্ট', 'Open reports')}</button><button data-act="admtab" data-v="done" class="tab">${tx('নিষ্পন্ন', 'Resolved')}</button><button data-act="admtab" data-v="users" class="tab">${tx('ইউজার', 'Users')}</button></div>
+      <div id="adm-body" class="space-y-3"></div>`, 'admin');
+    admTab('open');
+  }
+  async function admTab(v) {
+    document.querySelectorAll('[data-act="admtab"]').forEach(b => b.classList.toggle('on', b.dataset.v === v));
+    const box = $('adm-body'); if (!box) return; window.__admView = v;
+    if (v === 'users') { box.innerHTML = `<input id="adm-q" class="inp" autocapitalize="none" placeholder="${tx('নাম বা @ইউজারনেম', 'Name or @username')}"><div id="adm-res" class="space-y-2"></div>`; return; }
+    box.innerHTML = `<p class="text-xs text-mut text-center py-6">…</p>`;
+    try {
+      const sn = await getDocs(query(collection(db, 'reports'), where('status', 'in', v === 'open' ? ['open'] : ['resolved', 'dismissed']), limit(50)));
+      const rows = sn.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => b.createdAt - a.createdAt);
+      box.innerHTML = rows.length ? rows.map(r => `<div class="glass rounded-2xl p-3 text-sm space-y-2"><div class="flex justify-between gap-2 flex-wrap"><div><b>${esc(r.targetName)}</b> <span class="text-mut text-xs">@${esc(r.targetUsername)}</span></div><span class="text-[10px] text-mut">${ago(r.createdAt)}</span></div>
+        <div class="text-[11px] text-mut">${tx('রিপোর্টকারী', 'Reported by')}: ${esc(r.reporterName)} (@${esc(r.reporterUsername)})</div><span class="tag rose">${rLabel(r.reason)}</span>${r.details ? `<p class="text-xs">${esc(r.details)}</p>` : ''}
+        ${r.status !== 'open' ? `<div class="text-[11px] text-mut">${r.status === 'dismissed' ? tx('খারিজ করা হয়েছে', 'Dismissed') : tx('ব্যবস্থা', 'Action') + ': ' + esc(r.action || '')}</div>` : ''}<div class="flex flex-wrap gap-1.5">${uBtns(r.targetUid, r.status === 'open' ? r.id : '')}</div></div>`).join('') : `<p class="text-xs text-mut text-center py-6">${tx('কোনো রিপোর্ট নেই', 'No reports')}</p>`;
+    } catch (e) { box.innerHTML = `<p class="text-xs text-rose-400 text-center py-6">${esc(e.message)}</p>`; }
+  }
+  async function admSet(uid, status, rid) {
+    const me = get().me, reason = status === 'active' ? '' : prompt(tx('কারণ লিখুন (ইউজার দেখতে পারবে)', 'Reason (the user will see this)'), ''); if (reason === null) return;
+    await updateDoc(doc(db, 'users', uid), { status, statusReason: reason, statusAt: Date.now(), statusBy: me });
+    if (rid) await updateDoc(doc(db, 'reports', rid), { status: 'resolved', action: status, resolvedBy: me, resolvedAt: Date.now() });
+    notify(uid, '', 'message', { preview: status === 'active' ? tx('✅ আপনার অ্যাকাউন্ট আবার সক্রিয় করা হয়েছে', '✅ Your account has been restored') : stLabel(status) + (reason ? ': ' + reason : '') }).catch(() => {});
+    toast(tx('আপডেট হয়েছে', 'Updated'), 'ok'); admTab(window.__admView || 'open');
+  }
+  async function admDismiss(rid) { await updateDoc(doc(db, 'reports', rid), { status: 'dismissed', resolvedBy: get().me, resolvedAt: Date.now() }); toast(tx('খারিজ করা হয়েছে', 'Dismissed'), 'ok'); admTab(window.__admView || 'open'); }
+  async function admEntries(uid) {
+    const p = await userDoc(uid) || {};
+    const [a, b] = await Promise.all([getDocs(query(collection(db, 'entries'), where('creatorUid', '==', uid))), getDocs(query(collection(db, 'entries'), where('otherUid', '==', uid)))]), m = new Map();
+    [...a.docs, ...b.docs].forEach(d => m.set(d.id, d.data()));
+    const rows = [...m.values()].filter(e => (e.participants || []).length === 2).sort((x, y) => (y.date || '').localeCompare(x.date || '')).map(e => {
+      const mineSide = e.creatorUid === uid, dir = mineSide ? e.type : (e.type === 'lent' ? 'borrowed' : 'lent'), other = mineSide ? e.otherName : e.creatorName, rem = Math.max(0, rd(e.amount - (e.paid || 0))), od = e.status === 'accepted' && rem > 0 && e.dueDate && e.dueDate < today();
+      return `<div class="glass rounded-2xl p-3 text-xs flex justify-between gap-2"><div><b>${dir === 'lent' ? '⬆️ ' + tx('দিয়েছে', 'Lent to') : '⬇️ ' + tx('নিয়েছে', 'Borrowed from')} ${esc(other || '?')}</b><div class="text-mut">${esc(e.date || '')}${e.dueDate ? ' → ' + esc(e.dueDate) : ''} · ${esc(e.status)}</div></div><div class="text-right mono"><div>${money(e.amount)}</div><div class="${od ? 'text-rose-500' : 'text-mut'}">${tx('বাকি', 'Due')} ${money(rem)}${od ? ' ⏰' : ''}</div></div></div>`; });
+    openModal(`<div class="flex justify-between items-center mb-3"><button data-act="admin" class="ghost sm">← Admin</button><button data-act="close" class="ghost sm" aria-label="close">✕</button></div><h3 class="font-extrabold mb-1">📄 ${esc(p.name || '')} <span class="text-mut text-xs font-normal">@${esc(p.username || '')}</span></h3><p class="text-[11px] text-mut mb-3">${tx('শুধু দুই-পক্ষের হিসাব (ব্যক্তিগত হিসাব দেখা যায় না)', 'Two-party entries only (personal entries are not visible)')}</p><div class="space-y-2">${rows.join('') || `<p class="text-xs text-mut text-center py-6">${tx('কোনো হিসাব নেই', 'No entries')}</p>`}</div>`, 'admin');
+  }
+  let admTm;
+  document.addEventListener('input', e => { if (e.target.id !== 'adm-q') return; clearTimeout(admTm); admTm = setTimeout(async () => {
+    const box = $('adm-res'), q = e.target.value.trim().toLowerCase().replace(/^@/, ''); if (!box) return; if (!q) { box.innerHTML = ''; return; }
+    const run = f => getDocs(query(collection(db, 'users'), where(f, '>=', q), where(f, '<=', q + '\uf8ff'), limit(10)));
+    try { const [a, b] = await Promise.all([run('usernameLower'), run('nameLower')]), m = new Map(); [...a.docs, ...b.docs].forEach(d => m.set(d.id, d.data()));
+      box.innerHTML = m.size ? [...m.entries()].map(([id, u]) => `<div class="glass rounded-2xl p-3 text-sm space-y-2"><div class="flex items-center gap-2">${av(u.name, u.photo, 'sm')}<div><b>${esc(u.name)}</b> <span class="text-mut text-xs">@${esc(u.username)}</span> ${u.status && u.status !== 'active' ? `<span class="tag rose">${stLabel(u.status)}</span>` : ''}</div></div><div class="flex flex-wrap gap-1.5">${uBtns(id, '')}</div></div>`).join('') : `<p class="text-xs text-mut text-center py-4">${tx('কাউকে পাওয়া যায়নি', 'No one found')}</p>`; } catch (er) { box.innerHTML = `<p class="text-xs text-rose-400">${esc(er.message)}</p>`; } }, 280); });
+  document.addEventListener('click', async e => {
+    const b = e.target.closest('[data-act]'); if (!b) return; const a = b.dataset.act, d = b.dataset;
+    if (a === 'logout') { const w = $('ban-wall'); w && w.remove(); return; }
+    try {
+      if (a === 'report') reportForm(d.uid); else if (a === 'reportsend') await reportSend(d.uid); else if (a === 'admin') adminPanel(); else if (a === 'admtab') await admTab(d.v);
+      else if (a === 'admset') await admSet(d.uid, d.v, d.rid); else if (a === 'admdismiss') await admDismiss(d.rid); else if (a === 'admentries') await admEntries(d.uid);
+    } catch (err) { toast(err.message || 'Error', 'err'); }
+  });
+
   return {
-    onRender(all) { last = all; insights(); banner(); sync(); findBtn(); if (!once) { once = true; remind(); tour(); } },
+    onRender(all) { last = all; insights(); banner(); sync(); findBtn(); adminBtn(); if (!once) { once = true; remind(); tour(); } },
     selBtn(u) { try { let b = $('sel-prof'); if (!u) { b && b.remove(); return; } if (!b) { b = document.createElement('button'); b.id = 'sel-prof'; b.type = 'button'; b.dataset.act = 'viewp'; b.className = 'ghost sm mt-1.5'; $('sel-note').after(b); } b.dataset.uid = u.uid; b.textContent = '👤 ' + tx('প্রোফাইল ও রেকর্ড দেখুন', 'View profile & record'); } catch {} },
     toolsHtml: () => `<button data-act="people" class="ghost w-full !justify-start py-3">🔎 ${tx('মানুষ খুঁজুন (প্রোফাইল)', 'Find people (profiles)')}</button><button data-act="inbox" class="ghost w-full !justify-start py-3">💬 ${tx('মেসেজ', 'Messages')}</button><button data-act="stmt" class="ghost w-full !justify-start py-3">🧾 ${tx('স্টেটমেন্ট (PDF/প্রিন্ট)', 'Statement (PDF / Print)')}</button><button data-act="json" class="ghost w-full !justify-start py-3">💾 ${tx('আমার ডেটা ডাউনলোড (JSON)', 'Download my data (JSON)')}</button><button data-act="notifperm" class="ghost w-full !justify-start py-3">🔔 ${tx('ব্রাউজার রিমাইন্ডার চালু করুন', 'Enable browser reminders')}</button><button data-act="tour" class="ghost w-full !justify-start py-3">❓ ${tx('গাইড দেখুন', 'Show guide')}</button>`,
     profileTop() {
@@ -185,7 +285,7 @@ export function initExtras(c) {
       <div class="grid grid-cols-4 gap-2 mb-4">${cell(s.n, tx('মোট', 'Entries'))}${cell(s.active, tx('চলমান', 'Active'))}${cell(s.settled, tx('নিষ্পন্ন', 'Settled'))}${cell(s.rate + '%', tx('পরিশোধ', 'Repaid'))}</div>`;
     },
     profileFields: (p, priv) => `<div class="grid grid-cols-2 gap-3"><div><label class="lb">${tx('অবস্থান', 'Location')}</label><input id="p-loc" class="inp" maxlength="60" value="${esc(p.location || '')}"></div><div><label class="lb">${tx('পেশা', 'Occupation')}</label><input id="p-job" class="inp" maxlength="60" value="${esc(p.occupation || '')}"></div></div><div><label class="lb">${tx('জন্ম তারিখ', 'Birthday')} <span class="text-mut">(${tx('ব্যক্তিগত', 'private')})</span></label><input id="p-dob" type="date" class="inp" value="${esc(priv.dob || '')}"></div>`,
-    profileAccount: () => `<div class="sect"><h4 class="font-bold text-sm mb-3">⚙️ ${tx('অ্যাকাউন্ট', 'Account')}</h4><div class="space-y-2.5">${auth.currentUser.emailVerified ? '' : `<button data-act="verify" class="ghost w-full !justify-start">✉️ ${tx('ইমেইল ভেরিফাই করুন', 'Verify email')}</button>`}<button data-act="json" class="ghost w-full !justify-start">💾 ${tx('ডেটা ডাউনলোড', 'Download my data')}</button><button data-act="delacct" class="ghost red w-full !justify-start">🗑 ${tx('অ্যাকাউন্ট মুছুন', 'Delete account')}</button><p class="text-[11px] text-mut"><a href="/privacy.html" class="underline">Privacy</a> · <a href="/terms.html" class="underline">Terms</a> · <a href="/help.html" class="underline">Help</a></p></div></div>`,
+    profileAccount: () => `<div class="sect"><h4 class="font-bold text-sm mb-3">⚙️ ${tx('অ্যাকাউন্ট', 'Account')}</h4><div class="space-y-2.5">${auth.currentUser.emailVerified ? '' : `<button data-act="verify" class="ghost w-full !justify-start">✉️ ${tx('ইমেইল ভেরিফাই করুন', 'Verify email')}</button>`}<button data-act="json" class="ghost w-full !justify-start">💾 ${tx('ডেটা ডাউনলোড', 'Download my data')}</button><button data-act="delacct" class="ghost red w-full !justify-start">🗑 ${tx('অ্যাকাউন্ট মুছুন', 'Delete account')}</button><p class="text-[10px] text-mut break-all">UID: <code>${auth.currentUser.uid}</code></p><p class="text-[11px] text-mut"><a href="/privacy.html" class="underline">Privacy</a> · <a href="/terms.html" class="underline">Terms</a> · <a href="/help.html" class="underline">Help</a></p></div></div>`,
     async act(a, ds = {}) {
       if (a === 'viewp') return viewProfile(ds.uid); if (a === 'chat') return openChat(ds.uid); if (a === 'chatsend') return sendMsg(ds.uid); if (a === 'inbox') return inbox(); if (a === 'people') return findPeople();
       const u = auth.currentUser, g = get();
