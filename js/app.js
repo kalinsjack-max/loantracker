@@ -210,6 +210,7 @@ function nText(n) {
     case 'deleted': return t('nDel', w, a);
     case 'reminder': return t('nRemind', w, a);
     case 'edited': return t('nEdit', w, a);
+    case 'message': return `${d.name}: ${d.preview || ''}`;
     default: return '';
   }
 }
@@ -311,6 +312,7 @@ function card(v, i) {
     okA && lent && !shared && v.rem ? `<button data-act="pay" data-id="${v.id}" class="btn">${ic('coins')}${t('btnReceive')}</button>` : '',
     okA && (lent || !shared) ? `<button data-act="top" data-id="${v.id}" class="${shared ? 'btn' : 'ghost'}">${ic('plus')}${t(lent ? 'btnTop' : 'btnTopB')}</button>` : '',
     okA && v.rem && lent && shared ? `<button data-act="remind" data-id="${v.id}" class="ghost sm" title="${t('remind')}">${ic('bell')}</button>` : '',
+    v.puid ? `<button data-act="viewp" data-uid="${v.puid}" class="ghost sm" title="Profile">👤</button>` : '',
     canEditE(v) ? `<button data-act="edit" data-id="${v.id}" class="ghost sm" title="${t('edit')}">${ic('edit')}</button>` : '',
     canDel(v) ? `<button data-act="del" data-id="${v.id}" class="ghost sm red" title="${t('del')}">${ic('trash')}</button>` : ''].join('');
   const log = (v.log || []).map(l => {
@@ -377,7 +379,7 @@ function setFormType(tp) {
   setSelNote();
 }
 function setSelNote() {
-  const n = $('sel-note'); n.textContent = selected ? t('hintSel', selected.username) : t('hintPersonal'); n.className = 'text-[11px] mt-1.5 ' + (selected ? 'text-emerald-500 font-semibold' : 'text-mut');
+  const n = $('sel-note'); n.textContent = selected ? t('hintSel', selected.username) : t('hintPersonal'); n.className = 'text-[11px] mt-1.5 ' + (selected ? 'text-emerald-500 font-semibold' : 'text-mut'); X.selBtn(selected);
 }
 $('f-person').oninput = (() => { let tm; return () => { selected = null; setSelNote(); clearTimeout(tm); tm = setTimeout(searchUsers, 280); }; })();
 async function searchUsers() {
@@ -588,7 +590,7 @@ document.addEventListener('click', async ev => {
       case 'clearnotes': await Promise.all(notes.map(n => deleteDoc(doc(db, 'notifications', n.id)))); break;
       case 'delnote': await deleteDoc(doc(db, 'notifications', id)); break;
       case 'tools': showTools(); break;
-      case 'stmt': case 'json': case 'verify': case 'notifperm': case 'tour': case 'delacct': await X.act(b.dataset.act); break;
+      case 'stmt': case 'json': case 'verify': case 'notifperm': case 'tour': case 'delacct': case 'viewp': case 'chat': case 'chatsend': case 'inbox': await X.act(b.dataset.act, b.dataset); break;
       case 'csv': exportCsv(); toast(t('csvDone'), 'ok'); closeModal(); break;
       case 'sumcopy': { const s = summaryText(); closeModal(); if (!s) return toast(t('nothing'), 'info'); await navigator.clipboard.writeText(s); toast(t('copied'), 'ok'); break; }
       case 'profile': showProfile(); break;
@@ -676,4 +678,4 @@ $('q').oninput = () => { animNext = true; render(); };
 /* ================= boot ================= */
 hydrate(); applyI18n(); applyAuthMode(); applyTheme(localStorage.getItem('haulat_theme') || 'dark');
 
-const X = initExtras({ auth, db, esc, money, getLang, toast, openModal, closeModal, signOut, get: () => ({ entries, profile, priv }) });
+const X = initExtras({ auth, db, esc, money, getLang, toast, openModal, closeModal, signOut, get: () => ({ entries, profile, priv, me }), av, people, notify });
