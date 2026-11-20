@@ -2,10 +2,18 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
+    // admin = a document exists at admins/{uid} (create it by hand in the Firebase Console)
+    function isAdmin() { return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)); }
+    // frozen / banned users cannot write anything
+    function statusOk() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('status', 'active') in ['active', 'flagged']; }
 
     match /users/{uid} {
       allow read: if signedIn();
-      allow write: if signedIn() && request.auth.uid == uid;
+      allow create: if signedIn() && request.auth.uid == uid && !('status' in request.resource.data);
+      allow update: if signedIn() && (
+        ( request.auth.uid == uid && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'statusReason', 'statusAt', 'statusBy']) )
+        || ( isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'statusReason', 'statusAt', 'statusBy']) ) );
+      allow delete: if signedIn() && request.auth.uid == uid;
     }
     // private phone/address: only the owner can read or write
     match /private/{uid} {
@@ -27,9 +35,9 @@ service cloud.firestore {
       function only(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
       function lastIdx() { return resource.data.log.size(); }
 
-      allow read: if signedIn() && request.auth.uid in resource.data.participants;
+      allow read: if signedIn() && (request.auth.uid in resource.data.participants || (isAdmin() && resource.data.participants.size() == 2));
 
-      allow create: if signedIn()
+      allow create: if signedIn() && statusOk()
         && request.resource.data.creatorUid == request.auth.uid
         && request.auth.uid in request.resource.data.participants
         && request.resource.data.type in ['lent', 'borrowed']
@@ -44,7 +52,7 @@ service cloud.firestore {
         );
 
       // identity fields can never change; then ONE of the cases below must match
-      allow update: if signedIn()
+      allow update: if signedIn() && statusOk()
         && request.auth.uid in resource.data.participants
         && newE().creatorUid == oldE().creatorUid
         && newE().participants == oldE().participants
@@ -98,7 +106,7 @@ service cloud.firestore {
       //  - not confirmed yet / rejected: only the creator (cancel the request)
       //  - confirmed & money still due: ONLY the lender (the borrower can never erase his debt)
       //  - confirmed & fully paid: either side
-      allow delete: if signedIn()
+      allow delete: if signedIn() && statusOk()
         && request.auth.uid in resource.data.participants
         && (
           ( personal() && resource.data.creatorUid == request.auth.uid )
@@ -108,8 +116,42 @@ service cloud.firestore {
         );
     }
 
+    // admins list: a user may only check whether HE is an admin
+    match /admins/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+    }
+    // reports against users (one report per reporter+target)
+    match /reports/{id} {
+      allow create: if signedIn() && statusOk()
+        && request.resource.data.reporterUid == request.auth.uid
+        && request.resource.data.targetUid != request.auth.uid
+        && id == request.auth.uid + '_' + request.resource.data.targetUid
+        && request.resource.data.status == 'open'
+        && request.resource.data.details.size() <= 500;
+      allow read: if signedIn() && (isAdmin() || resource.data.reporterUid == request.auth.uid);
+      allow update, delete: if isAdmin();
+    }
+    // direct messages between two users
+    match /messages/{id} {
+      allow create: if signedIn() && statusOk() && request.resource.data.from == request.auth.uid
+        && request.resource.data.participants.size() == 2
+        && request.auth.uid in request.resource.data.participants
+        && request.resource.data.text is string && request.resource.data.text.size() <= 500;
+      allow read: if signedIn() && request.auth.uid in resource.data.participants;
+      allow update: if signedIn() && resource.data.to == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow delete: if signedIn() && resource.data.from == request.auth.uid;
+    }
+    // Android push tokens (one doc per device). Nobody can read them from a client;
+    // only the Cloud Function (admin SDK) reads them.
+    match /fcmTokens/{token} {
+      allow read: if false;
+      allow create, update: if signedIn() && request.resource.data.uid == request.auth.uid;
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+    }
+
     match /notifications/{id} {
-      allow create: if signedIn() && request.resource.data.fromUid == request.auth.uid;
+      allow create: if signedIn() && statusOk() && request.resource.data.fromUid == request.auth.uid;
       allow read, update, delete: if signedIn() && resource.data.toUid == request.auth.uid;
     }
   }
