@@ -9,7 +9,7 @@ export function initExtras(c) {
   const tx = (bn, en) => getLang() === 'bn' ? bn : en;
   const today = () => new Date().toISOString().slice(0, 10);
   const $ = id => document.getElementById(id);
-  let last = [], once = false, msgs = [], chatUid = null, subUid = null, unsub = null, repJson = '';
+  let msgReady = false, last = [], once = false, msgs = [], chatUid = null, subUid = null, unsub = null, repJson = '';
   const rd = n => Math.round(n * 100) / 100;
   const ago = ts => new Date(ts).toLocaleString(getLang() === 'bn' ? 'bn-BD' : 'en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   const foot = () => { const L = getLang() === 'bn' ? ['সহায়তা', 'প্রাইভেসি', 'শর্তাবলী'] : ['Help', 'Privacy', 'Terms']; document.querySelectorAll('footer a').forEach((a, i) => a.textContent = L[i] || a.textContent); };
@@ -91,7 +91,11 @@ export function initExtras(c) {
       if (j !== repJson) { repJson = j; updateDoc(doc(db, 'users', me), { rep: { ...r, updatedAt: Date.now() } }).catch(e => console.warn('record sync failed', e)); }
     }, 1500);
     if (subUid !== me) { unsub && unsub(); unsubSt && unsubSt(); subUid = me; msgs = []; myStatus = 'active'; myReason = ''; isAdmin = false; { const c0 = $('adm-console'); c0 && c0.remove(); } watchMe(me);
-      unsub = onSnapshot(query(collection(db, 'messages'), where('participants', 'array-contains', me)), snap => { msgs = snap.docs.map(d => ({ id: d.id, ...d.data() })); chatList(); }, () => {}); }
+      msgReady = false;
+      unsub = onSnapshot(query(collection(db, 'messages'), where('participants', 'array-contains', me)), snap => {
+        if (msgReady) snap.docChanges().forEach(c => { if (c.type === 'added') { const m = c.doc.data(); if (m.to === me && !m.read) incoming(m); } });
+        msgReady = true; msgs = snap.docs.map(d => ({ id: d.id, ...d.data() })); chatList(); drawInbox(); badge();
+      }, () => {}); }
   }
   const onTime = r => r && r.bCount ? Math.round((r.bCount - r.bLate) / r.bCount * 100) : null;
   function rating(r) {
@@ -141,33 +145,55 @@ export function initExtras(c) {
   }
   async function openChat(uid) {
     chatUid = uid; const p = await userDoc(uid) || {};
-    openModal(`<div class="flex justify-between items-center mb-3"><div class="flex items-center gap-3 min-w-0">${av(p.name, p.photo, 'sm')}<div class="min-w-0"><div class="font-extrabold truncate">${esc(p.name || '')}</div><div class="text-[11px] text-mut">@${esc(p.username || '')}</div></div></div><button data-act="close" class="ghost sm" aria-label="close">✕</button></div>
+    openModal(`<div class="flex justify-between items-center mb-3"><div class="flex items-center gap-3 min-w-0"><button data-act="inbox" class="ghost sm" aria-label="back">←</button>${av(p.name, p.photo, 'sm')}<div class="min-w-0"><div class="font-extrabold truncate">${esc(p.name || '')}</div><div class="text-[11px] text-mut">@${esc(p.username || '')}</div></div></div><button data-act="close" class="ghost sm" aria-label="close">✕</button></div>
     <div id="chat-list" class="space-y-2 overflow-y-auto" style="max-height:50vh;min-height:150px"></div>
     <div class="flex gap-2 mt-3"><input id="chat-in" class="inp" maxlength="500" placeholder="${tx('মেসেজ লিখুন…', 'Type a message…')}" autocomplete="off"><button data-act="chatsend" data-uid="${uid}" class="btn" aria-label="send">➤</button></div>`, 'chat');
     chatList(); setTimeout(() => $('chat-in') && $('chat-in').focus(), 60);
   }
   async function sendMsg(uid) {
     const inp = $('chat-in'), text = inp ? inp.value.trim() : ''; if (!text || !uid) return; const me = get().me; inp.value = '';
-    try { await addDoc(collection(db, 'messages'), { participants: [me, uid], from: me, to: uid, text: text.slice(0, 500), ts: Date.now(), read: false }); await notify(uid, '', 'message', { preview: text.slice(0, 60) }); }
+    try { await addDoc(collection(db, 'messages'), { participants: [me, uid], from: me, to: uid, text: text.slice(0, 500), ts: Date.now(), read: false }); }
     catch { inp.value = text; toast(tx('মেসেজ পাঠানো যায়নি', 'Could not send message'), 'info'); }
   }
-  async function inbox() {
-    const me = get().me, m = new Map();
+  const baseTitle = document.title.replace(/^\(\d+\) /, '');
+  function badge() {
+    const me = get().me, n = msgs.filter(m => m.to === me && !m.read).length;
+    document.querySelectorAll('.ibadge').forEach(el => { el.textContent = n > 99 ? '99+' : n; el.classList.toggle('hidden', !n); });
+    document.title = (n ? `(${n}) ` : '') + baseTitle;
+  }
+  function inboxBtn() {
+    if ($('inbox-btn')) return; const tb = $('fp-btn') || document.querySelector('header [data-act="tools"]'); if (!tb) return;
+    const b = document.createElement('button'); b.id = 'inbox-btn'; b.dataset.act = 'inbox'; b.className = 'ghost relative'; b.setAttribute('aria-label', 'inbox'); b.title = tx('ইনবক্স', 'Inbox');
+    b.innerHTML = '💬<span class="ibadge hidden absolute -top-1.5 -right-1.5 bg-sky-500 text-white text-[10px] rounded-full min-w-[1.1rem] h-[1.1rem] px-0.5 flex items-center justify-center font-bold shadow-lg">0</span>'; tb.before(b); badge();
+  }
+  async function incoming(m) {
+    if ($('chat-list') && chatUid === m.from) return; const u = await userDoc(m.from) || {};
+    toast('💬 ' + (u.name || '?') + ': ' + m.text.slice(0, 60), 'info');
+    if ('Notification' in window && Notification.permission === 'granted' && document.hidden) new Notification(u.name || 'Haulat Tracker', { body: m.text.slice(0, 100), icon: '/icons/icon-192.png' });
+  }
+  async function drawInbox() {
+    const box = $('inbox-list'); if (!box) return; const me = get().me, m = new Map();
     msgs.forEach(x => { const o = x.participants.find(q => q !== me); if (!o) return; const c = m.get(o) || { last: x, un: 0 }; if (x.ts > c.last.ts) c.last = x; if (x.to === me && !x.read) c.un++; m.set(o, c); });
-    const ids = [...m.keys()].sort((a, b) => m.get(b).last.ts - m.get(a).last.ts), us = await Promise.all(ids.map(userDoc));
-    const rows = ids.map((id, i) => { const c = m.get(id), u = us[i] || {}; return `<button data-act="chat" data-uid="${id}" class="ghost w-full !justify-start gap-3 py-2.5 text-left">${av(u.name, u.photo, 'sm')}<div class="min-w-0 flex-1"><div class="font-bold text-sm">${esc(u.name || '?')} ${c.un ? `<span class="tag rose">${c.un}</span>` : ''}</div><div class="text-[11px] text-mut truncate">${esc(c.last.text)}</div></div></button>`; }).join('');
-    openModal(`<div class="flex justify-between items-center mb-3"><h3 class="font-extrabold">💬 ${tx('মেসেজ', 'Messages')}</h3><button data-act="close" class="ghost sm" aria-label="close">✕</button></div><div class="space-y-2">${rows || `<p class="text-xs text-mut text-center py-6">${tx('কোনো মেসেজ নেই। কারও প্রোফাইল থেকে মেসেজ পাঠান।', 'No messages yet. Open someone’s profile to message them.')}</p>`}</div>`, 'inbox');
+    const rows = [...m.entries()].sort((a, b) => b[1].last.ts - a[1].last.ts), us = await Promise.all(rows.map(([id]) => userDoc(id)));
+    if (!$('inbox-list')) return;
+    box.innerHTML = rows.length ? rows.map(([id, c], i) => { const u = us[i] || {}; return `<button data-act="chat" data-uid="${id}" class="ghost w-full !justify-start gap-3 py-3 text-left">${av(u.name, u.photo, 'sm')}<div class="min-w-0 flex-1"><div class="flex justify-between gap-2"><span class="${c.un ? 'font-extrabold' : 'font-semibold'} text-sm truncate">${esc(u.name || '?')}</span><span class="text-[10px] text-mut shrink-0">${ago(c.last.ts)}</span></div><div class="text-[12px] truncate ${c.un ? 'font-bold' : 'text-mut'}">${c.last.from === me ? tx('আপনি: ', 'You: ') : ''}${esc(c.last.text)}</div></div>${c.un ? `<span class="bg-sky-500 text-white text-[10px] rounded-full min-w-[1.25rem] h-5 px-1 flex items-center justify-center font-bold">${c.un}</span>` : ''}</button>`; }).join('')
+      : `<p class="text-center text-sm text-mut py-10">📭 ${tx('ইনবক্স খালি। কেউ মেসেজ পাঠালে এখানে দেখা যাবে।', 'Your inbox is empty. Messages will appear here.')}</p>`;
+  }
+  function inbox() {
+    chatUid = null;
+    openModal(`<div class="flex justify-between items-center mb-3"><h3 class="font-extrabold">💬 ${tx('ইনবক্স', 'Inbox')}</h3><div class="flex gap-2"><button data-act="newmsg" class="btn sm">✏️ ${tx('নতুন মেসেজ', 'New message')}</button><button data-act="close" class="ghost sm" aria-label="close">✕</button></div></div><div id="inbox-list" class="space-y-2 overflow-y-auto" style="max-height:60vh"></div>`, 'inbox');
+    drawInbox();
   }
 
-
   /* ---------- find people ---------- */
-  let fpTm;
+  let fpTm, fpAct = 'viewp';
   function findBtn() {
     if ($('fp-btn')) return; const tb = document.querySelector('header [data-act="tools"]'); if (!tb) return;
     const b = document.createElement('button'); b.id = 'fp-btn'; b.dataset.act = 'people'; b.className = 'ghost'; b.textContent = '🔎'; b.setAttribute('aria-label', 'find people'); b.title = tx('মানুষ খুঁজুন', 'Find people'); tb.before(b);
   }
-  function findPeople() {
-    openModal(`<div class="flex justify-between items-center mb-3"><h3 class="font-extrabold">🔎 ${tx('মানুষ খুঁজুন', 'Find people')}</h3><button data-act="close" class="ghost sm" aria-label="close">✕</button></div><input id="fp-in" class="inp" autocomplete="off" autocapitalize="none" placeholder="${tx('নাম বা @ইউজারনেম লিখুন', 'Type a name or @username')}"><div id="fp-res" class="space-y-2 mt-3"></div><p class="text-[11px] text-mut mt-3">${tx('কারও উপর ট্যাপ করলে তার প্রোফাইল ও পরিশোধের রেকর্ড দেখা যাবে।', 'Tap a person to see their profile and repayment record.')}</p>`, 'findp');
+  function findPeople(act = 'viewp') {
+    fpAct = act;
+    openModal(`<div class="flex justify-between items-center mb-3"><h3 class="font-extrabold">${act === 'chat' ? '✏️ ' + tx('নতুন মেসেজ', 'New message') : '🔎 ' + tx('মানুষ খুঁজুন', 'Find people')}</h3><button data-act="close" class="ghost sm" aria-label="close">✕</button></div><input id="fp-in" class="inp" autocomplete="off" autocapitalize="none" placeholder="${tx('নাম বা @ইউজারনেম লিখুন', 'Type a name or @username')}"><div id="fp-res" class="space-y-2 mt-3"></div><p class="text-[11px] text-mut mt-3">${tx('কারও উপর ট্যাপ করলে তার প্রোফাইল ও পরিশোধের রেকর্ড দেখা যাবে।', 'Tap a person to see their profile and repayment record.')}</p>`, 'findp');
     setTimeout(() => $('fp-in') && $('fp-in').focus(), 60);
   }
   async function fpSearch() {
@@ -176,7 +202,7 @@ export function initExtras(c) {
     const run = f => getDocs(query(collection(db, 'users'), where(f, '>=', q), where(f, '<=', q + '\uf8ff'), limit(8)));
     try {
       const [a, b] = await Promise.all([run('usernameLower'), run('nameLower')]), m = new Map(); [...a.docs, ...b.docs].forEach(d => !d.data().hidden && !['banned', 'deleted'].includes(d.data().status) && m.set(d.id, d.data()));
-      box.innerHTML = m.size ? [...m.entries()].map(([id, u]) => `<button data-act="viewp" data-uid="${id}" class="ghost w-full !justify-start gap-3 py-2.5 text-left">${av(u.name, u.photo, 'sm')}<div class="min-w-0"><div class="font-bold text-sm truncate">${esc(u.name)}</div><div class="text-[11px] text-mut">@${esc(u.username)}${u.location ? ' · 📍 ' + esc(u.location) : ''}</div></div></button>`).join('') : `<p class="text-xs text-mut text-center py-4">${tx('কাউকে পাওয়া যায়নি', 'No one found')}</p>`;
+      box.innerHTML = m.size ? [...m.entries()].filter(([id]) => fpAct !== 'chat' || id !== get().me).map(([id, u]) => `<button data-act="${fpAct}" data-uid="${id}" class="ghost w-full !justify-start gap-3 py-2.5 text-left">${av(u.name, u.photo, 'sm')}<div class="min-w-0"><div class="font-bold text-sm truncate">${esc(u.name)}</div><div class="text-[11px] text-mut">@${esc(u.username)}${u.location ? ' · 📍 ' + esc(u.location) : ''}</div></div></button>`).join('') : `<p class="text-xs text-mut text-center py-4">${tx('কাউকে পাওয়া যায়নি', 'No one found')}</p>`;
     } catch { box.innerHTML = `<p class="text-xs text-rose-400 text-center py-4">${tx('খুঁজতে সমস্যা হয়েছে', 'Search failed')}</p>`; }
   }
   document.addEventListener('input', e => { if (e.target.id === 'fp-in') { clearTimeout(fpTm); fpTm = setTimeout(fpSearch, 280); } });
@@ -225,15 +251,15 @@ export function initExtras(c) {
     catch { toast(tx('রিপোর্ট পাঠানো যায়নি (আগেই রিপোর্ট করে থাকতে পারেন)', 'Could not send report (you may have already reported this user)'), 'info'); }
   }
 
-  const uBtns = (uid, rid) => `<button data-act="viewp" data-uid="${uid}" class="ghost sm">👤</button><button data-act="admentries" data-uid="${uid}" class="ghost sm">📄 ${tx('হিসাব', 'Entries')}</button><button data-act="admset" data-uid="${uid}" data-v="flagged" data-rid="${rid || ''}" class="ghost sm">🚩 ${tx('ফ্ল্যাগ', 'Flag')}</button><button data-act="admset" data-uid="${uid}" data-v="frozen" data-rid="${rid || ''}" class="ghost sm">🧊 ${tx('ফ্রিজ', 'Freeze')}</button><button data-act="admset" data-uid="${uid}" data-v="banned" data-rid="${rid || ''}" class="ghost sm red">🚫 ${tx('ব্যান', 'Ban')}</button><button data-act="admset" data-uid="${uid}" data-v="active" data-rid="${rid || ''}" class="ghost sm">✅ ${tx('সক্রিয়', 'Restore')}</button>${rid ? `<button data-act="admdismiss" data-rid="${rid}" class="ghost sm">✖ ${tx('খারিজ', 'Dismiss')}</button>` : ''}<button data-act="admdel" data-uid="${uid}" class="ghost sm red">🗑 ${tx('মুছুন', 'Delete')}</button>`;
+  const uBtns = (uid, rid) => `<button data-act="viewp" data-uid="${uid}" class="ghost sm">👤</button><button data-act="admentries" data-uid="${uid}" class="ghost sm">👁 ${tx('বিস্তারিত', 'Details')}</button><button data-act="admset" data-uid="${uid}" data-v="flagged" data-rid="${rid || ''}" class="ghost sm">🚩 ${tx('ফ্ল্যাগ', 'Flag')}</button><button data-act="admset" data-uid="${uid}" data-v="frozen" data-rid="${rid || ''}" class="ghost sm">🧊 ${tx('ফ্রিজ', 'Freeze')}</button><button data-act="admset" data-uid="${uid}" data-v="banned" data-rid="${rid || ''}" class="ghost sm red">🚫 ${tx('ব্যান', 'Ban')}</button><button data-act="admset" data-uid="${uid}" data-v="active" data-rid="${rid || ''}" class="ghost sm">✅ ${tx('সক্রিয়', 'Restore')}</button>${rid ? `<button data-act="admdismiss" data-rid="${rid}" class="ghost sm">✖ ${tx('খারিজ', 'Dismiss')}</button>` : ''}<button data-act="admdel" data-uid="${uid}" class="ghost sm red">🗑 ${tx('মুছুন', 'Delete')}</button>`;
   let admUsers = [], admFilter = 'all';
   const admCss = () => { if ($('adm-css')) return; const st = document.createElement('style'); st.id = 'adm-css'; st.textContent = '.atab{padding:.45rem .9rem;border-radius:999px;font-size:13px;font-weight:600;opacity:.75;border:1px solid rgba(148,163,184,.3);background:transparent;color:inherit;cursor:pointer}.atab.on{background:linear-gradient(90deg,#10b981,#0ea5e9);color:#fff;opacity:1;border-color:transparent}'; document.head.appendChild(st); };
   function adminPanel() {
     closeModal(); admCss();
     if (!$('adm-console')) {
       const o = document.createElement('div'); o.id = 'adm-console'; o.className = 'fixed inset-0 overflow-y-auto'; o.style.cssText = 'z-index:40;background:var(--bg,#060913)';
-      const tabs = [['overview', '📊 ' + tx('ওভারভিউ', 'Overview')], ['open', '🚩 ' + tx('রিপোর্ট', 'Reports')], ['done', '✔ ' + tx('নিষ্পন্ন', 'Resolved')], ['users', '👥 ' + tx('ইউজার', 'Users')], ['add', '➕ ' + tx('ইউজার যোগ', 'Add user')]];
-      o.innerHTML = `<div class="max-w-4xl mx-auto p-4 sm:p-6"><div class="glass rounded-3xl p-4 flex items-center justify-between gap-3 mb-4"><div class="flex items-center gap-3"><span class="text-3xl">🛡️</span><div><div class="font-extrabold">Admin Console</div><div class="text-[11px] text-mut">${esc(get().profile.name || 'admin')}</div></div></div><button data-act="logout" class="ghost sm">⎋ ${tx('লগআউট', 'Logout')}</button></div>
+      const tabs = [['overview', '📊 ' + tx('ওভারভিউ', 'Overview')], ['open', '🚩 ' + tx('রিপোর্ট', 'Reports')], ['done', '✔ ' + tx('নিষ্পন্ন', 'Resolved')], ['users', '👥 ' + tx('ইউজার', 'Users')], ['entries', '📒 ' + tx('সব হিসাব', 'All entries')], ['add', '➕ ' + tx('ইউজার যোগ', 'Add user')]];
+      o.innerHTML = `<div class="max-w-4xl mx-auto p-4 sm:p-6"><div class="glass rounded-3xl p-4 flex items-center justify-between gap-3 mb-4"><div class="flex items-center gap-3"><span class="text-3xl">🛡️</span><div><div class="font-extrabold">Admin Console</div><div class="text-[11px] text-mut">${esc(get().profile.name || 'admin')}</div></div></div><div class="flex gap-2"><button data-act="inbox" class="ghost sm relative">💬 ${tx('ইনবক্স', 'Inbox')}<span class="ibadge hidden absolute -top-1.5 -right-1.5 bg-sky-500 text-white text-[10px] rounded-full min-w-[1.1rem] h-[1.1rem] px-0.5 flex items-center justify-center font-bold">0</span></button><button data-act="logout" class="ghost sm">⎋ ${tx('লগআউট', 'Logout')}</button></div></div>
         <div class="flex flex-wrap gap-2 mb-4">${tabs.map(([v, l]) => `<button data-act="admtab" data-v="${v}" class="atab">${l}</button>`).join('')}</div><div id="adm-body" class="space-y-3"></div></div>`;
       document.body.appendChild(o);
     }
@@ -266,6 +292,10 @@ export function initExtras(c) {
           <div><label class="lb">Email</label><input id="au-email" type="email" class="inp" autocapitalize="none"></div>
           <div><label class="lb">${tx('পাসওয়ার্ড (কমপক্ষে ৬)', 'Password (min 6)')}</label><input id="au-pass" type="text" class="inp" autocomplete="off"></div>
           <button data-act="admadd" class="btn w-full py-3">${tx('ইউজার তৈরি করুন', 'Create user')}</button><p class="text-[11px] text-mut">${tx('ইউজার এই ইমেইল-পাসওয়ার্ড দিয়ে লগইন করতে পারবে। পাসওয়ার্ডটি তাকে জানিয়ে দিন।', 'The user can log in with this email and password. Share the password with them.')}</p></div>`; return;
+      }
+      if (v === 'entries') {
+        const es = await getDocs(query(collection(db, 'entries'), limit(100))), list = es.docs.map(d => [d.id, d.data()]).sort((x, y) => (y[1].date || '').localeCompare(x[1].date || ''));
+        box.innerHTML = `<p class="text-[11px] text-mut">${tx('সর্বশেষ ১০০টি হিসাব', 'Latest 100 entries')}</p>` + (list.map(([id, e]) => eRow(id, e, '')).join('') || `<p class="text-xs text-mut text-center py-6">${tx('কোনো হিসাব নেই', 'No entries')}</p>`); return;
       }
       const sn = await getDocs(query(collection(db, 'reports'), where('status', 'in', v === 'open' ? ['open'] : ['resolved', 'dismissed']), limit(50)));
       const rows = sn.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => b.createdAt - a.createdAt);
@@ -300,14 +330,47 @@ export function initExtras(c) {
     toast(tx('ইউজার তৈরি হয়েছে', 'User created'), 'ok'); ['au-name', 'au-user', 'au-email', 'au-pass'].forEach(i => { $(i).value = ''; });
   }
   async function admDismiss(rid) { await updateDoc(doc(db, 'reports', rid), { status: 'dismissed', resolvedBy: get().me, resolvedAt: Date.now() }); toast(tx('খারিজ করা হয়েছে', 'Dismissed'), 'ok'); admTab(window.__admView || 'open'); }
-  async function admEntries(uid) {
-    const p = await userDoc(uid) || {};
-    const [a, b] = await Promise.all([getDocs(query(collection(db, 'entries'), where('creatorUid', '==', uid))), getDocs(query(collection(db, 'entries'), where('otherUid', '==', uid)))]), m = new Map();
-    [...a.docs, ...b.docs].forEach(d => m.set(d.id, d.data()));
-    const rows = [...m.values()].filter(e => (e.participants || []).length === 2).sort((x, y) => (y.date || '').localeCompare(x.date || '')).map(e => {
-      const mineSide = e.creatorUid === uid, dir = mineSide ? e.type : (e.type === 'lent' ? 'borrowed' : 'lent'), other = mineSide ? e.otherName : e.creatorName, rem = Math.max(0, rd(e.amount - (e.paid || 0))), od = e.status === 'accepted' && rem > 0 && e.dueDate && e.dueDate < today();
-      return `<div class="glass rounded-2xl p-3 text-xs flex justify-between gap-2"><div><b>${dir === 'lent' ? '⬆️ ' + tx('দিয়েছে', 'Lent to') : '⬇️ ' + tx('নিয়েছে', 'Borrowed from')} ${esc(other || '?')}</b><div class="text-mut">${esc(e.date || '')}${e.dueDate ? ' → ' + esc(e.dueDate) : ''} · ${esc(e.status)}</div></div><div class="text-right mono"><div>${money(e.amount)}</div><div class="${od ? 'text-rose-500' : 'text-mut'}">${tx('বাকি', 'Due')} ${money(rem)}${od ? ' ⏰' : ''}</div></div></div>`; });
-    openModal(`<div class="flex justify-between items-center mb-3"><button data-act="admin" class="ghost sm">← Admin</button><button data-act="close" class="ghost sm" aria-label="close">✕</button></div><h3 class="font-extrabold mb-1">📄 ${esc(p.name || '')} <span class="text-mut text-xs font-normal">@${esc(p.username || '')}</span></h3><p class="text-[11px] text-mut mb-3">${tx('শুধু দুই-পক্ষের হিসাব (ব্যক্তিগত হিসাব দেখা যায় না)', 'Two-party entries only (personal entries are not visible)')}</p><div class="space-y-2">${rows.join('') || `<p class="text-xs text-mut text-center py-6">${tx('কোনো হিসাব নেই', 'No entries')}</p>`}</div>`, 'admin');
+  const kv = (k, v) => v ? `<div class="flex justify-between gap-3 text-xs"><span class="text-mut shrink-0">${k}</span><span class="text-right break-all">${esc(String(v))}</span></div>` : '';
+  const eRow = (id, e, ctx) => {
+    const rem = Math.max(0, rd((e.amount || 0) - (e.paid || 0))), od = e.status === 'accepted' && rem > 0 && e.dueDate && e.dueDate < today(), shared = (e.participants || []).length === 2;
+    const who = shared ? `${esc(e.creatorName || '?')} ${e.type === 'lent' ? '→' : '←'} ${esc(e.otherName || '?')}` : `${esc(e.creatorName || '?')} (${tx('ব্যক্তিগত', 'personal')})`;
+    return `<div class="glass rounded-2xl p-3 text-xs space-y-1.5"><div class="flex justify-between gap-2"><div class="min-w-0"><b>${who}</b><div class="text-mut">${e.type === 'lent' ? tx('ধার দিয়েছে', 'Lent') : tx('ধার নিয়েছে', 'Borrowed')} · ${esc(e.date || '')}${e.dueDate ? ' → ' + esc(e.dueDate) : ''} · ${esc(e.status || '')}</div>${e.note ? `<div class="text-mut">📝 ${esc(e.note)}</div>` : ''}</div><div class="text-right mono shrink-0"><div>${money(e.amount)}</div><div class="${od ? 'text-rose-500' : 'text-mut'}">${tx('বাকি', 'Due')} ${money(rem)}${od ? ' ⏰' : ''}</div></div></div><div class="flex gap-1.5"><button data-act="admeditE" data-id="${id}" data-uid="${ctx || ''}" class="ghost sm">✏️ ${tx('এডিট', 'Edit')}</button><button data-act="admdelE" data-id="${id}" data-uid="${ctx || ''}" class="ghost sm red">🗑 ${tx('মুছুন', 'Delete')}</button></div></div>`;
+  };
+  async function admUser(uid) {
+    const [us, ps, a, b] = await Promise.all([getDoc(doc(db, 'users', uid)), getDoc(doc(db, 'private', uid)), getDocs(query(collection(db, 'entries'), where('creatorUid', '==', uid))), getDocs(query(collection(db, 'entries'), where('otherUid', '==', uid)))]);
+    const p = us.data() || {}, pr = ps.exists() ? ps.data() : {}, r = p.rep || {}, m = new Map(); [...a.docs, ...b.docs].forEach(d => m.set(d.id, d.data()));
+    const rows = [...m.entries()].sort((x, y) => (y[1].date || '').localeCompare(x[1].date || '')).map(([id, e]) => eRow(id, e, uid)).join('');
+    openModal(`<div class="flex justify-between items-center mb-3"><button data-act="admin" class="ghost sm">← Admin</button><button data-act="close" class="ghost sm" aria-label="close">✕</button></div>
+      <div class="flex items-center gap-3 mb-3">${av(p.name, p.photo, 'xl')}<div class="min-w-0"><div class="text-lg font-extrabold">${esc(p.name || '')}</div><div class="text-xs text-mut">@${esc(p.username || '')}</div>${stLabel(p.status) ? `<span class="tag rose">${stLabel(p.status)}</span>` : ''}</div></div>
+      <div class="glass rounded-2xl p-3 mb-3 space-y-1.5">${kv('UID', uid)}${kv(tx('বায়ো', 'Bio'), p.bio)}${kv(tx('অবস্থান', 'Location'), p.location)}${kv(tx('পেশা', 'Occupation'), p.occupation)}${kv(tx('ফোন', 'Phone'), pr.phone)}${kv(tx('ঠিকানা', 'Address'), pr.address)}${kv(tx('জন্ম তারিখ', 'Birthday'), pr.dob)}${kv(tx('স্ট্যাটাসের কারণ', 'Status reason'), p.statusReason)}</div>
+      <div class="glass rounded-2xl p-3 mb-3 text-xs">${tx('ধার নিয়েছে', 'Borrowed')}: <b>${r.bCount || 0}</b> (${money(r.bTotal || 0)}, ${tx('পরিশোধ', 'paid')} ${money(r.bPaid || 0)}) · ${tx('ধার দিয়েছে', 'Lent')}: <b>${r.lCount || 0}</b> (${money(r.lTotal || 0)}) · ${tx('বকেয়া', 'Overdue')}: <b>${r.bOverdue || 0}</b></div>
+      <div class="flex flex-wrap gap-1.5 mb-4">${uBtns(uid, '')}<button data-act="chat" data-uid="${uid}" class="ghost sm">💬 ${tx('মেসেজ', 'Message')}</button><button data-act="admmsgs" data-uid="${uid}" class="ghost sm">📨 ${tx('তার মেসেজ', 'His messages')}</button><button data-act="admedit" data-uid="${uid}" class="ghost sm">✏️ ${tx('প্রোফাইল এডিট', 'Edit profile')}</button></div>
+      <div class="text-xs font-bold mb-2">📒 ${tx('সব হিসাব', 'All entries')} (${m.size})</div><div class="space-y-2">${rows || `<p class="text-xs text-mut text-center py-6">${tx('কোনো হিসাব নেই', 'No entries')}</p>`}</div>`, 'admin');
+  }
+  const afterE = ctx => ctx ? admUser(ctx) : admTab('entries');
+  async function admEditEntry(id, ctx) {
+    const ref = doc(db, 'entries', id), e = (await getDoc(ref)).data(); if (!e) return;
+    const amount = prompt(tx('মোট পরিমাণ', 'Total amount'), e.amount); if (amount === null) return;
+    const paid = prompt(tx('এ পর্যন্ত পরিশোধিত', 'Paid so far'), e.paid || 0); if (paid === null) return;
+    const due = prompt(tx('মেয়াদ (YYYY-MM-DD)', 'Due date (YYYY-MM-DD)'), e.dueDate || ''); if (due === null) return;
+    const note = prompt(tx('নোট', 'Note'), e.note || ''); if (note === null) return;
+    const A = Number(amount), P = Number(paid); if (!(A > 0) || P < 0 || P > A) return toast(tx('পরিমাণ সঠিক নয়', 'Invalid amounts'), 'info');
+    await updateDoc(ref, { amount: A, paid: P, dueDate: due, note }); toast(tx('আপডেট হয়েছে', 'Updated'), 'ok'); afterE(ctx);
+  }
+  async function admDelEntry(id, ctx) { if (!confirm(tx('এই হিসাবটি স্থায়ীভাবে মুছে ফেলবেন?', 'Permanently delete this entry?'))) return; await deleteDoc(doc(db, 'entries', id)); toast(tx('মুছে ফেলা হয়েছে', 'Deleted'), 'ok'); afterE(ctx); }
+  async function admMsgs(uid) {
+    const sn = await getDocs(query(collection(db, 'messages'), where('participants', 'array-contains', uid))), ms = sn.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => a.ts - b.ts), names = {};
+    await Promise.all([...new Set(ms.flatMap(x => x.participants))].map(async i => { const u = await userDoc(i); names[i] = (u && u.name) || i; }));
+    openModal(`<div class="flex justify-between items-center mb-3"><button data-act="admentries" data-uid="${uid}" class="ghost sm">←</button><h3 class="font-extrabold">📨 ${tx('মেসেজ', 'Messages')} (${ms.length})</h3><button data-act="close" class="ghost sm" aria-label="close">✕</button></div><div class="space-y-2 overflow-y-auto" style="max-height:60vh">${ms.map(x => `<div class="glass rounded-2xl p-2.5 text-xs flex justify-between gap-2"><div class="min-w-0"><b>${esc(names[x.from])} → ${esc(names[x.to])}</b> <span class="text-mut">${ago(x.ts)}</span><div class="break-words">${esc(x.text)}</div></div><button data-act="admdelM" data-id="${x.id}" data-uid="${uid}" class="ghost sm red">🗑</button></div>`).join('') || `<p class="text-xs text-mut text-center py-6">${tx('কোনো মেসেজ নেই', 'No messages')}</p>`}</div>`, 'admin');
+  }
+  async function admDelMsg(id, uid) { await deleteDoc(doc(db, 'messages', id)); admMsgs(uid); }
+  async function admEditUser(uid) {
+    const p = (await getDoc(doc(db, 'users', uid))).data() || {}, pr = (await getDoc(doc(db, 'private', uid))).data() || {}, ask = (l, v) => prompt(l, v || '');
+    const name = ask(tx('নাম', 'Name'), p.name); if (name === null || !name.trim()) return; const bio = ask('Bio', p.bio); if (bio === null) return;
+    const location = ask(tx('অবস্থান', 'Location'), p.location); if (location === null) return; const occupation = ask(tx('পেশা', 'Occupation'), p.occupation); if (occupation === null) return;
+    const phone = ask(tx('ফোন', 'Phone'), pr.phone); if (phone === null) return; const address = ask(tx('ঠিকানা', 'Address'), pr.address); if (address === null) return;
+    await updateDoc(doc(db, 'users', uid), { name: name.trim(), nameLower: name.trim().toLowerCase(), bio, location, occupation }); await setDoc(doc(db, 'private', uid), { phone, address }, { merge: true });
+    toast(tx('আপডেট হয়েছে', 'Updated'), 'ok'); admUser(uid);
   }
   document.addEventListener('input', e => { if (e.target.id === 'adm-q') drawUsers(); });
   document.addEventListener('click', async e => {
@@ -315,12 +378,12 @@ export function initExtras(c) {
     if (a === 'logout') { const w = $('ban-wall'), c1 = $('adm-console'); w && w.remove(); c1 && c1.remove(); isAdmin = false; return; }
     try {
       if (a === 'report') reportForm(d.uid); else if (a === 'reportsend') await reportSend(d.uid); else if (a === 'admin') adminPanel(); else if (a === 'admtab') await admTab(d.v);
-      else if (a === 'admset') await admSet(d.uid, d.v, d.rid); else if (a === 'admdismiss') await admDismiss(d.rid); else if (a === 'admentries') await admEntries(d.uid); else if (a === 'admdel') await admDelete(d.uid); else if (a === 'admadd') await admAdd(); else if (a === 'admfilter') { admFilter = d.v; document.querySelectorAll('[data-act="admfilter"]').forEach(x => x.classList.toggle('on', x.dataset.v === admFilter)); drawUsers(); }
+      else if (a === 'admset') await admSet(d.uid, d.v, d.rid); else if (a === 'admdismiss') await admDismiss(d.rid); else if (a === 'admentries') await admUser(d.uid); else if (a === 'admdel') await admDelete(d.uid); else if (a === 'admadd') await admAdd(); else if (a === 'admeditE') await admEditEntry(d.id, d.uid); else if (a === 'admdelE') await admDelEntry(d.id, d.uid); else if (a === 'admmsgs') await admMsgs(d.uid); else if (a === 'admdelM') await admDelMsg(d.id, d.uid); else if (a === 'admedit') await admEditUser(d.uid); else if (a === 'newmsg') findPeople('chat'); else if (a === 'admfilter') { admFilter = d.v; document.querySelectorAll('[data-act="admfilter"]').forEach(x => x.classList.toggle('on', x.dataset.v === admFilter)); drawUsers(); }
     } catch (err) { toast(err.message || 'Error', 'err'); }
   });
 
   return {
-    onRender(all) { last = all; insights(); banner(); sync(); findBtn(); adminBtn(); if (!once) { once = true; remind(); tour(); } },
+    onRender(all) { last = all; insights(); banner(); sync(); findBtn(); inboxBtn(); adminBtn(); if (!once) { once = true; remind(); tour(); } },
     selBtn(u) { try { let b = $('sel-prof'); if (!u) { b && b.remove(); return; } if (!b) { b = document.createElement('button'); b.id = 'sel-prof'; b.type = 'button'; b.dataset.act = 'viewp'; b.className = 'ghost sm mt-1.5'; $('sel-note').after(b); } b.dataset.uid = u.uid; b.textContent = '👤 ' + tx('প্রোফাইল ও রেকর্ড দেখুন', 'View profile & record'); } catch {} },
     toolsHtml: () => `<button data-act="people" class="ghost w-full !justify-start py-3">🔎 ${tx('মানুষ খুঁজুন (প্রোফাইল)', 'Find people (profiles)')}</button><button data-act="inbox" class="ghost w-full !justify-start py-3">💬 ${tx('মেসেজ', 'Messages')}</button><button data-act="stmt" class="ghost w-full !justify-start py-3">🧾 ${tx('স্টেটমেন্ট (PDF/প্রিন্ট)', 'Statement (PDF / Print)')}</button><button data-act="json" class="ghost w-full !justify-start py-3">💾 ${tx('আমার ডেটা ডাউনলোড (JSON)', 'Download my data (JSON)')}</button><button data-act="notifperm" class="ghost w-full !justify-start py-3">🔔 ${tx('ব্রাউজার রিমাইন্ডার চালু করুন', 'Enable browser reminders')}</button><button data-act="tour" class="ghost w-full !justify-start py-3">❓ ${tx('গাইড দেখুন', 'Show guide')}</button>`,
     profileTop() {
