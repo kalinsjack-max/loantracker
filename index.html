@@ -14,6 +14,13 @@
 <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&family=JetBrains+Mono:wght@600;800&family=Plus+Jakarta+Sans:wght@600;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
 <script>(function(){var t=localStorage.getItem('haulat_theme');if(t==='light'){document.documentElement.classList.remove('dark');document.documentElement.classList.add('light')}})()</script>
+<style id="dev-css">.devlink{display:inline-flex;align-items:center;gap:.45rem;font-weight:700;text-decoration:none;color:var(--tx,#f1f5f9);letter-spacing:.01em}
+.devlink .dl-n{display:inline-flex;align-items:center}
+.devlink .dl-n b{font-weight:800;letter-spacing:.06em;background:linear-gradient(90deg,#fbbf24,#f59e0b);-webkit-background-clip:text;background-clip:text;color:transparent;transition:background .3s,color .3s}
+.devlink .dl-fb{width:0;height:1.15em;opacity:0;transform:translateX(-8px) scale(.6);flex:none;transition:width .3s ease,opacity .3s ease,transform .3s ease,margin .3s ease}
+.devlink:hover .dl-fb,.devlink:focus-visible .dl-fb{width:1.15em;opacity:1;transform:none;margin-right:.4rem}
+.devlink:hover .dl-n b,.devlink:focus-visible .dl-n b{background:none;-webkit-text-fill-color:var(--tx,#f1f5f9);color:var(--tx,#f1f5f9)}
+@media(prefers-reduced-motion:reduce){.devlink .dl-fb,.devlink .dl-n b{transition:none}}</style>
 </head>
 <body class="antialiased">
 <div class="mesh" aria-hidden="true"><i></i><i></i><i></i></div>
@@ -148,12 +155,15 @@
   </div>
 </div>
 
-<!-- SIGNATURE FOOTER -->
-<footer class="relative z-10 w-full border-t border-slate-500/15 backdrop-blur-xl py-8 mt-auto" style="background:var(--sub)">
-  <div class="max-w-5xl mx-auto px-4 flex flex-col items-center gap-3 text-center">
-    <div class="sig"><div><span class="w-6 h-6 rounded-full border border-emerald-400/40 bg-emerald-500/15 flex items-center justify-center text-emerald-300"><i data-ic="code" data-cls="w-3.5 h-3.5"></i></span><b>Developed By Aishorjo</b><span class="text-amber-300">✦</span></div></div>
-    <div class="flex items-center gap-2 text-xs text-mut"><span class="text-emerald-500"><i data-ic="shield" data-cls="w-3.5 h-3.5"></i></span><span data-i="footNote"></span></div>
-    <div class="text-[11px] text-mut flex gap-3"><a href="/help.html" class="hover:underline">Help</a><a href="/privacy.html" class="hover:underline">Privacy</a><a href="/terms.html" class="hover:underline">Terms</a></div>
+<!-- FOOTER -->
+<footer class="relative z-10 w-full border-t backdrop-blur-xl mt-auto" style="background:var(--sub);border-color:var(--bd);color:var(--mut)">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 pt-6 pb-5">
+    <div class="fl flex justify-center flex-wrap gap-x-5 gap-y-1 text-[13px] mb-5"><a href="/help.html" class="text-emerald-400 hover:underline">Help</a><a href="/privacy.html" class="text-emerald-400 hover:underline">Privacy</a><a href="/terms.html" class="text-emerald-400 hover:underline">Terms</a></div>
+    <div class="flex flex-col sm:flex-row items-center justify-between gap-2 pt-4 border-t text-[13px]" style="border-color:var(--bd)">
+      <span id="foot-copy">© ২০২৬ হাওলাত ট্র্যাকার। সর্বস্বত্ব সংরক্ষিত।</span>
+      <!-- 👉 put YOUR Facebook link in the href below -->
+      <a class="devlink" href="https://www.facebook.com/" target="_blank" rel="noopener noreferrer" aria-label="Developer on Facebook"><span class="dl-t">Developed By :</span><span class="dl-n"><svg class="dl-fb" viewBox="0 0 24 24" aria-hidden="true"><path fill="#1877F2" d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg><b>AISHORJO</b></span></a>
+    </div>
   </div>
 </footer>
 
