@@ -390,10 +390,14 @@ export function initExtras(c) {
   /* ---------- pages (hash routes) + Facebook-style search ---------- */
   let routed = false, curPage = '', pgUid = null, gsTm;
   const MODALS = { notifications: 'notifs', tools: 'tools', profile: 'profile' };
+  const modalHome = $('modal') ? $('modal').parentNode : null;
+  function restoreModal() { const m = $('modal'); if (!m) return; m.classList.remove('as-page'); delete m.dataset.pg; if (modalHome && m.parentNode !== modalHome) modalHome.appendChild(m); }
   (function pgCss() {
     if ($('pg-css')) return; const st = document.createElement('style'); st.id = 'pg-css';
-    st.textContent = 'body.pg-on #app{z-index:auto!important}body.pg-on #app>*:not(header):not(#pg){display:none!important}#fp-btn{display:none!important}.pg-act{background:rgba(52,211,153,.2)!important;border-color:rgba(52,211,153,.6)!important}'
-      + '#modal.as-page{top:var(--hdr,96px);background:transparent;-webkit-backdrop-filter:none;backdrop-filter:none;align-items:flex-start;padding:0 1rem 2rem;overflow-y:auto;z-index:20}#modal.as-page #modal-box{max-width:56rem;max-height:none;overflow:visible}';
+    st.textContent = 'body.pg-on #app>*:not(header):not(#pg):not(#modal){display:none!important}#fp-btn{display:none!important}.pg-act{background:rgba(52,211,153,.2)!important;border-color:rgba(52,211,153,.6)!important}body{overflow-x:clip}'
+      + '#app>header{position:sticky;top:0;z-index:30;isolation:isolate;background:transparent!important;border:0!important;box-shadow:none!important;border-radius:0!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important;margin-top:-1rem;padding:.65rem 0!important}'
+      + "#app>header::before{content:'';position:absolute;top:0;bottom:0;left:50%;width:100vw;transform:translateX(-50%);z-index:-1;background:var(--sub);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);border-bottom:1px solid var(--bd);box-shadow:0 10px 30px -22px rgba(0,0,0,.65)}"
+      + '#modal.as-page{position:static!important;inset:auto!important;width:100%;padding:0 0 1.5rem;background:transparent;-webkit-backdrop-filter:none;backdrop-filter:none;align-items:flex-start;justify-content:center;z-index:auto}#modal.as-page #modal-box{max-width:56rem;max-height:none;overflow:visible}';
     document.head.appendChild(st);
   })();
   const SEARCH_SVG = '<svg class="w-4 h-4 text-mut shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>';
@@ -455,19 +459,19 @@ export function initExtras(c) {
     const hd = document.querySelector('#app > header'); if (hd) document.documentElement.style.setProperty('--hdr', (hd.getBoundingClientRect().bottom + 12) + 'px');
     if (page !== 'messages') { chatUid = null; unwatchPeer(); }
     if (page === 'messages') {
-      document.body.classList.add('pg-on'); m.classList.remove('as-page'); if (m.classList.contains('open')) closeModal(); showMessages(arg);
+      document.body.classList.add('pg-on'); if (m.classList.contains('open')) closeModal(); restoreModal(); showMessages(arg);
     } else if (MODALS[page]) {
       document.body.classList.add('pg-on'); pg && (pg.className = 'hidden');
-      if (!(m.classList.contains('open') && m.classList.contains('as-page') && m.dataset.pg === page)) { if (m.classList.contains('open')) closeModal(); openOriginal(MODALS[page]); }
+      if (!(m.classList.contains('open') && m.classList.contains('as-page') && m.dataset.pg === page)) { if (m.classList.contains('open')) closeModal(); $('app').appendChild(m); openOriginal(MODALS[page]); }
       m.classList.add('as-page'); m.dataset.pg = page;
     } else {
       document.body.classList.remove('pg-on'); pg && (pg.className = 'hidden');
-      if (m.classList.contains('as-page')) { m.classList.remove('as-page'); delete m.dataset.pg; closeModal(); }
+      if (m.classList.contains('as-page')) closeModal(); restoreModal();
     }
   }
   window.addEventListener('hashchange', route);
   window.addEventListener('resize', () => { const hd = document.querySelector('#app > header'); if (hd) document.documentElement.style.setProperty('--hdr', (hd.getBoundingClientRect().bottom + 12) + 'px'); });
-  if ($('modal')) new MutationObserver(() => { const m = $('modal'); if (curPage in MODALS && m.classList.contains('as-page') && !m.classList.contains('open')) { m.classList.remove('as-page'); delete m.dataset.pg; location.hash = '#/'; } }).observe($('modal'), { attributes: true, attributeFilter: ['class'] });
+  if ($('modal')) new MutationObserver(() => { const m = $('modal'); if (curPage in MODALS && m.classList.contains('as-page') && !m.classList.contains('open')) { restoreModal(); location.hash = '#/'; } }).observe($('modal'), { attributes: true, attributeFilter: ['class'] });
   document.addEventListener('mousedown', e => { if (e.target.id === 'modal' && e.target.classList.contains('as-page')) e.stopImmediatePropagation(); }, true);
   document.addEventListener('click', e => {
     if (!e.target.closest('#gsearch') && $('gs-res')) $('gs-res').classList.add('hidden');
