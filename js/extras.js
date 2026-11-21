@@ -12,7 +12,7 @@ export function initExtras(c) {
   let msgReady = false, last = [], once = false, msgs = [], chatUid = null, subUid = null, unsub = null, repJson = '';
   const rd = n => Math.round(n * 100) / 100;
   const ago = ts => new Date(ts).toLocaleString(getLang() === 'bn' ? 'bn-BD' : 'en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-  const foot = () => { const L = getLang() === 'bn' ? ['সহায়তা', 'প্রাইভেসি', 'শর্তাবলী'] : ['Help', 'Privacy', 'Terms']; document.querySelectorAll('footer a').forEach((a, i) => a.textContent = L[i] || a.textContent); };
+  const foot = () => { const L = getLang() === 'bn' ? ['সহায়তা', 'প্রাইভেসি', 'শর্তাবলী'] : ['Help', 'Privacy', 'Terms']; document.querySelectorAll('footer .fl a').forEach((a, i) => { if (L[i]) a.textContent = L[i]; }); const cp = $('foot-copy'); if (cp) cp.textContent = getLang() === 'bn' ? '© ২০২৬ হাওলাত ট্র্যাকার। সর্বস্বত্ব সংরক্ষিত।' : '© 2026 Haulat Tracker. All rights reserved.'; };
   foot(); document.addEventListener('click', e => { if (e.target.closest('[data-act="lang"]')) setTimeout(foot, 0); });
   document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'chat-in') { e.preventDefault(); sendMsg(chatUid); } });
 
