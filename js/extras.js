@@ -12,9 +12,9 @@ export function initExtras(c) {
   let msgReady = false, last = [], once = false, msgs = [], chatUid = null, subUid = null, unsub = null, repJson = '';
   const rd = n => Math.round(n * 100) / 100;
   const ago = ts => new Date(ts).toLocaleString(getLang() === 'bn' ? 'bn-BD' : 'en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-  const foot = () => { const L = getLang() === 'bn' ? ['সহায়তা', 'প্রাইভেসি', 'শর্তাবলী'] : ['Help', 'Privacy', 'Terms']; document.querySelectorAll('footer .fl a').forEach((a, i) => { if (L[i]) a.textContent = L[i]; }); const cp = $('foot-copy'); if (cp) cp.textContent = getLang() === 'bn' ? '© ২০২৬ হাওলাত ট্র্যাকার। সর্বস্বত্ব সংরক্ষিত।' : '© 2026 Haulat Tracker. All rights reserved.'; };
+  const foot = () => { const L = getLang() === 'bn' ? ['সহায়তা', 'প্রাইভেসি', 'শর্তাবলী'] : ['Help', 'Privacy', 'Terms']; document.querySelectorAll('footer .fl a').forEach((a, i) => { if (L[i]) a.textContent = L[i]; }); const cp = $('foot-copy'); if (cp) cp.textContent = getLang() === 'bn' ? '© ২০২৬ হাওলাত ট্র্যাকার। সর্বস্বত্ব সংরক্ষিত।' : '© 2026 Haulat Tracker. All rights reserved.'; const gi = $('gs-in'); if (gi) gi.placeholder = tx('মানুষ খুঁজুন…', 'Search people…'); };
   foot(); document.addEventListener('click', e => { if (e.target.closest('[data-act="lang"]')) setTimeout(foot, 0); });
-  document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'chat-in') { e.preventDefault(); sendMsg(chatUid); } });
+  document.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.target.id === 'chat-in' || e.target.id === 'pg-in')) { e.preventDefault(); sendMsg(chatUid); } });
 
   if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
 
@@ -138,7 +138,7 @@ export function initExtras(c) {
   /* ---------- messages ---------- */
   const thread = uid => msgs.filter(m => m.participants.includes(uid)).sort((a, b) => a.ts - b.ts);
   function chatList() {
-    const el = $('chat-list'); if (!el || !chatUid) return; const me = get().me, th = thread(chatUid);
+    const el = $('chat-list') || $('pg-msgs'); if (!el || !chatUid) return; const me = get().me, th = thread(chatUid);
     el.innerHTML = th.length ? th.map(m => `<div class="flex ${m.from === me ? 'justify-end' : ''}"><div class="rounded-2xl px-3 py-2 text-sm max-w-[80%] break-words ${m.from === me ? 'bg-emerald-500/20' : 'bg-slate-500/15'}">${esc(m.text)}<div class="text-[10px] text-mut mt-0.5">${ago(m.ts)}</div></div></div>`).join('') : `<p class="text-xs text-mut text-center py-6">${tx('কোনো মেসেজ নেই। প্রথম মেসেজ পাঠান', 'No messages yet. Say hello!')}</p>`;
     el.scrollTop = el.scrollHeight;
     th.filter(m => m.to === me && !m.read).forEach(m => updateDoc(doc(db, 'messages', m.id), { read: true }).catch(() => {}));
@@ -151,7 +151,7 @@ export function initExtras(c) {
     chatList(); setTimeout(() => $('chat-in') && $('chat-in').focus(), 60);
   }
   async function sendMsg(uid) {
-    const inp = $('chat-in'), text = inp ? inp.value.trim() : ''; if (!text || !uid) return; const me = get().me; inp.value = '';
+    const inp = $('chat-in') || $('pg-in'), text = inp ? inp.value.trim() : ''; if (!text || !uid) return; const me = get().me; inp.value = '';
     try { await addDoc(collection(db, 'messages'), { participants: [me, uid], from: me, to: uid, text: text.slice(0, 500), ts: Date.now(), read: false }); }
     catch { inp.value = text; toast(tx('মেসেজ পাঠানো যায়নি', 'Could not send message'), 'info'); }
   }
@@ -162,21 +162,23 @@ export function initExtras(c) {
     document.title = (n ? `(${n}) ` : '') + baseTitle;
   }
   function inboxBtn() {
-    if ($('inbox-btn')) return; const tb = $('fp-btn') || document.querySelector('header [data-act="tools"]'); if (!tb) return;
-    const b = document.createElement('button'); b.id = 'inbox-btn'; b.dataset.act = 'inbox'; b.className = 'ghost relative'; b.setAttribute('aria-label', 'inbox'); b.title = tx('ইনবক্স', 'Inbox');
-    b.innerHTML = '💬<span class="ibadge hidden absolute -top-1.5 -right-1.5 bg-sky-500 text-white text-[10px] rounded-full min-w-[1.1rem] h-[1.1rem] px-0.5 flex items-center justify-center font-bold shadow-lg">0</span>'; tb.before(b); badge();
+    if ($('inbox-btn')) return; const grp = document.querySelector('#app > header > div:last-child'); if (!grp) return;
+    const h = document.createElement('button'); h.id = 'home-btn'; h.dataset.act = 'home'; h.className = 'ghost'; h.setAttribute('aria-label', 'home'); h.title = tx('হোম', 'Home'); h.textContent = '🏠';
+    const b = document.createElement('button'); b.id = 'inbox-btn'; b.dataset.act = 'inbox'; b.className = 'ghost relative'; b.setAttribute('aria-label', 'inbox'); b.title = tx('মেসেজ', 'Messages');
+    b.innerHTML = '💬<span class="ibadge hidden absolute -top-1.5 -right-1.5 bg-sky-500 text-white text-[10px] rounded-full min-w-[1.1rem] h-[1.1rem] px-0.5 flex items-center justify-center font-bold shadow-lg">0</span>';
+    grp.prepend(b); grp.prepend(h); badge();
   }
   async function incoming(m) {
-    if ($('chat-list') && chatUid === m.from) return; const u = await userDoc(m.from) || {};
+    if (($('chat-list') || $('pg-msgs')) && chatUid === m.from) return; const u = await userDoc(m.from) || {};
     toast('💬 ' + (u.name || '?') + ': ' + m.text.slice(0, 60), 'info');
     if ('Notification' in window && Notification.permission === 'granted' && document.hidden) new Notification(u.name || 'Haulat Tracker', { body: m.text.slice(0, 100), icon: '/icons/icon-192.png' });
   }
   async function drawInbox() {
-    const box = $('inbox-list'); if (!box) return; const me = get().me, m = new Map();
+    const box = $('inbox-list') || $('pg-list'); if (!box) return; const me = get().me, m = new Map();
     msgs.forEach(x => { const o = x.participants.find(q => q !== me); if (!o) return; const c = m.get(o) || { last: x, un: 0 }; if (x.ts > c.last.ts) c.last = x; if (x.to === me && !x.read) c.un++; m.set(o, c); });
     const rows = [...m.entries()].sort((a, b) => b[1].last.ts - a[1].last.ts), us = await Promise.all(rows.map(([id]) => userDoc(id)));
-    if (!$('inbox-list')) return;
-    box.innerHTML = rows.length ? rows.map(([id, c], i) => { const u = us[i] || {}; return `<button data-act="chat" data-uid="${id}" class="ghost w-full !justify-start gap-3 py-3 text-left">${av(u.name, u.photo, 'sm')}<div class="min-w-0 flex-1"><div class="flex justify-between gap-2"><span class="${c.un ? 'font-extrabold' : 'font-semibold'} text-sm truncate">${esc(u.name || '?')}</span><span class="text-[10px] text-mut shrink-0">${ago(c.last.ts)}</span></div><div class="text-[12px] truncate ${c.un ? 'font-bold' : 'text-mut'}">${c.last.from === me ? tx('আপনি: ', 'You: ') : ''}${esc(c.last.text)}</div></div>${c.un ? `<span class="bg-sky-500 text-white text-[10px] rounded-full min-w-[1.25rem] h-5 px-1 flex items-center justify-center font-bold">${c.un}</span>` : ''}</button>`; }).join('')
+    if (!($('inbox-list') || $('pg-list'))) return;
+    box.innerHTML = rows.length ? rows.map(([id, c], i) => { const u = us[i] || {}; return `<button data-act="chat" data-uid="${id}" class="ghost w-full !justify-start gap-3 py-3 text-left ${id === chatUid && $('pg-list') ? 'ring-1 ring-sky-400/60' : ''}">${av(u.name, u.photo, 'sm')}<div class="min-w-0 flex-1"><div class="flex justify-between gap-2"><span class="${c.un ? 'font-extrabold' : 'font-semibold'} text-sm truncate">${esc(u.name || '?')}</span><span class="text-[10px] text-mut shrink-0">${ago(c.last.ts)}</span></div><div class="text-[12px] truncate ${c.un ? 'font-bold' : 'text-mut'}">${c.last.from === me ? tx('আপনি: ', 'You: ') : ''}${esc(c.last.text)}</div></div>${c.un ? `<span class="bg-sky-500 text-white text-[10px] rounded-full min-w-[1.25rem] h-5 px-1 flex items-center justify-center font-bold">${c.un}</span>` : ''}</button>`; }).join('')
       : `<p class="text-center text-sm text-mut py-10">📭 ${tx('ইনবক্স খালি। কেউ মেসেজ পাঠালে এখানে দেখা যাবে।', 'Your inbox is empty. Messages will appear here.')}</p>`;
   }
   function inbox() {
@@ -382,8 +384,101 @@ export function initExtras(c) {
     } catch (err) { toast(err.message || 'Error', 'err'); }
   });
 
+
+  /* ---------- pages (hash routes) + Facebook-style search ---------- */
+  let routed = false, curPage = '', pgUid = null, gsTm;
+  const MODALS = { notifications: 'notifs', tools: 'tools', profile: 'profile' };
+  (function pgCss() {
+    if ($('pg-css')) return; const st = document.createElement('style'); st.id = 'pg-css';
+    st.textContent = 'body.pg-on #app>*:not(header):not(#pg){display:none!important}#fp-btn{display:none!important}.pg-act{background:rgba(52,211,153,.2)!important;border-color:rgba(52,211,153,.6)!important}'
+      + '#modal.as-page{top:var(--hdr,96px);background:transparent;-webkit-backdrop-filter:none;backdrop-filter:none;align-items:flex-start;padding:0 1rem 2rem;overflow-y:auto;z-index:9}#modal.as-page #modal-box{max-width:56rem;max-height:none;overflow:visible}';
+    document.head.appendChild(st);
+  })();
+  const SEARCH_SVG = '<svg class="w-4 h-4 text-mut shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>';
+  function gsearchInit() {
+    if ($('gsearch')) return; const hd = document.querySelector('#app > header'); if (!hd) return;
+    const w = document.createElement('div'); w.id = 'gsearch'; w.className = 'relative order-last w-full md:order-none md:w-auto md:flex-1 md:max-w-md';
+    w.innerHTML = `<label class="flex items-center gap-2 rounded-full px-4 py-2.5 border focus-within:border-emerald-400" style="background:var(--inp);border-color:var(--inb)">${SEARCH_SVG}<input id="gs-in" type="search" class="bg-transparent outline-none w-full text-sm" style="color:var(--tx)" autocomplete="off" autocapitalize="none" placeholder="${tx('মানুষ খুঁজুন…', 'Search people…')}"></label><div id="gs-res" class="hidden absolute left-0 right-0 top-full mt-2 glass rounded-2xl p-2 max-h-80 overflow-y-auto z-50"></div>`;
+    hd.children[0].after(w);
+  }
+  async function gsRun(q) {
+    const run = f => getDocs(query(collection(db, 'users'), where(f, '>=', q), where(f, '<=', q + '\uf8ff'), limit(8)));
+    const [a, b] = await Promise.all([run('usernameLower'), run('nameLower')]), m = new Map();
+    [...a.docs, ...b.docs].forEach(d => { const u = d.data(); if (!u.hidden && !['banned', 'deleted'].includes(u.status)) m.set(d.id, u); });
+    return m;
+  }
+  document.addEventListener('input', e => {
+    if (e.target.id !== 'gs-in') return; clearTimeout(gsTm);
+    gsTm = setTimeout(async () => {
+      const box = $('gs-res'), q = e.target.value.trim().toLowerCase().replace(/^@/, ''); if (!box) return;
+      if (!q) { box.classList.add('hidden'); return; }
+      try { const m = await gsRun(q);
+        box.innerHTML = m.size ? [...m.entries()].map(([id, u]) => `<button data-act="viewp" data-uid="${id}" class="ghost w-full !justify-start gap-3 py-2 text-left">${av(u.name, u.photo, 'sm')}<div class="min-w-0"><div class="font-bold text-sm truncate">${esc(u.name)}</div><div class="text-[11px] text-mut truncate">@${esc(u.username)}${u.location ? ' · 📍 ' + esc(u.location) : ''}</div></div></button>`).join('') : `<p class="text-xs text-mut text-center py-4">${tx('কাউকে পাওয়া যায়নি', 'No one found')}</p>`;
+      } catch { box.innerHTML = `<p class="text-xs text-rose-400 text-center py-4">${tx('খুঁজতে সমস্যা হয়েছে', 'Search failed')}</p>`; }
+      box.classList.remove('hidden');
+    }, 250);
+  });
+  document.addEventListener('focusin', e => { if (e.target.id === 'gs-in' && $('gs-res') && $('gs-res').innerHTML) $('gs-res').classList.remove('hidden'); });
+  document.addEventListener('keydown', e => {
+    if (e.target.id !== 'gs-in') return;
+    if (e.key === 'Enter') { const f = document.querySelector('#gs-res button'); f && f.click(); } else if (e.key === 'Escape') $('gs-res').classList.add('hidden');
+  });
+
+  function setActive(page) {
+    const map = { '': '#home-btn', messages: '#inbox-btn', notifications: '[data-act="notifs"]', tools: '[data-act="tools"]', profile: '#me-btn' };
+    document.querySelectorAll('#app > header .pg-act').forEach(x => x.classList.remove('pg-act'));
+    const el = document.querySelector('#app > header ' + (map[page] || '#home-btn')); el && el.classList.add('pg-act');
+  }
+  function openOriginal(act) { const t = document.createElement('button'); t.dataset.act = act; t.dataset.pgBypass = '1'; t.style.display = 'none'; document.body.appendChild(t); t.click(); t.remove(); }
+  function showMessages(arg) {
+    let pg = $('pg'); if (!pg) { pg = document.createElement('div'); pg.id = 'pg'; $('app').appendChild(pg); }
+    pgUid = arg || null; chatUid = pgUid;
+    pg.className = 'grid grid-cols-1 md:grid-cols-[320px_1fr] gap-4';
+    pg.innerHTML = `<aside class="glass rounded-3xl p-3 flex-col ${pgUid ? 'hidden md:flex' : 'flex'}" style="min-height:70vh"><div class="flex justify-between items-center mb-3 px-1"><h2 class="font-extrabold">💬 ${tx('মেসেজ', 'Messages')}</h2><button data-act="newmsg" class="btn sm">✏️ ${tx('নতুন', 'New')}</button></div><div id="pg-list" class="space-y-1.5 overflow-y-auto" style="max-height:66vh"></div></aside><section id="pg-main" class="glass rounded-3xl p-4 flex-col ${pgUid ? 'flex' : 'hidden md:flex'}" style="min-height:70vh"></section>`;
+    drawInbox(); pgMain();
+  }
+  async function pgMain() {
+    const box = $('pg-main'); if (!box) return;
+    if (!pgUid) { box.innerHTML = `<div class="m-auto text-center text-mut"><div class="text-5xl mb-2">💬</div><p class="text-sm">${tx('একটি কথোপকথন বেছে নিন বা নতুন মেসেজ পাঠান', 'Select a conversation or start a new message')}</p></div>`; return; }
+    const uid = pgUid, p = await userDoc(uid) || {}; if (pgUid !== uid || !$('pg-main')) return;
+    box.innerHTML = `<div class="flex items-center gap-3 pb-3 mb-3 border-b" style="border-color:var(--bd)"><button data-act="pgback" class="ghost sm md:hidden" aria-label="back">←</button>${av(p.name, p.photo, 'sm')}<div class="min-w-0 flex-1"><div class="font-extrabold truncate">${esc(p.name || '')}</div><div class="text-[11px] text-mut">@${esc(p.username || '')}</div></div><button data-act="viewp" data-uid="${uid}" class="ghost sm">👤 ${tx('প্রোফাইল', 'Profile')}</button></div>
+      <div id="pg-msgs" class="flex-1 space-y-2 overflow-y-auto" style="min-height:40vh;max-height:56vh"></div>
+      <div class="flex gap-2 mt-3"><input id="pg-in" class="inp" maxlength="500" autocomplete="off" placeholder="${tx('মেসেজ লিখুন…', 'Type a message…')}"><button data-act="chatsend" data-uid="${uid}" class="btn" aria-label="send">➤</button></div>`;
+    chatList(); setTimeout(() => $('pg-in') && $('pg-in').focus(), 60);
+  }
+  function route() {
+    if (!get().me || isAdmin) return;
+    const parts = location.hash.replace(/^#\/?/, '').split('/'), page = parts[0] || '', arg = parts[1] || '', m = $('modal'), pg = $('pg');
+    curPage = page; setActive(page); window.scrollTo(0, 0);
+    const hd = document.querySelector('#app > header'); if (hd) document.documentElement.style.setProperty('--hdr', (hd.getBoundingClientRect().bottom + 12) + 'px');
+    if (page !== 'messages') chatUid = null;
+    if (page === 'messages') {
+      document.body.classList.add('pg-on'); m.classList.remove('as-page'); if (m.classList.contains('open')) closeModal(); showMessages(arg);
+    } else if (MODALS[page]) {
+      document.body.classList.add('pg-on'); pg && (pg.className = 'hidden');
+      if (!(m.classList.contains('open') && m.classList.contains('as-page') && m.dataset.pg === page)) { if (m.classList.contains('open')) closeModal(); openOriginal(MODALS[page]); }
+      m.classList.add('as-page'); m.dataset.pg = page;
+    } else {
+      document.body.classList.remove('pg-on'); pg && (pg.className = 'hidden');
+      if (m.classList.contains('as-page')) { m.classList.remove('as-page'); delete m.dataset.pg; closeModal(); }
+    }
+  }
+  window.addEventListener('hashchange', route);
+  window.addEventListener('resize', () => { const hd = document.querySelector('#app > header'); if (hd) document.documentElement.style.setProperty('--hdr', (hd.getBoundingClientRect().bottom + 12) + 'px'); });
+  if ($('modal')) new MutationObserver(() => { const m = $('modal'); if (curPage in MODALS && m.classList.contains('as-page') && !m.classList.contains('open')) { m.classList.remove('as-page'); delete m.dataset.pg; location.hash = '#/'; } }).observe($('modal'), { attributes: true, attributeFilter: ['class'] });
+  document.addEventListener('mousedown', e => { if (e.target.id === 'modal' && e.target.classList.contains('as-page')) e.stopImmediatePropagation(); }, true);
+  document.addEventListener('click', e => {
+    if (!e.target.closest('#gsearch') && $('gs-res')) $('gs-res').classList.add('hidden');
+    const b = e.target.closest('[data-act]'); if (!b) return;
+    if (b.closest('#gs-res')) setTimeout(() => { $('gs-res').classList.add('hidden'); $('gs-in').value = ''; }, 0);
+    if (b.dataset.pgBypass || isAdmin || !get().me) return;
+    const a = b.dataset.act, go = h => { e.preventDefault(); e.stopImmediatePropagation(); if (location.hash === h) route(); else location.hash = h; };
+    if (a === 'home') go('#/'); else if (a === 'notifs') go('#/notifications'); else if (a === 'tools') go('#/tools'); else if (a === 'profile') go('#/profile');
+    else if (a === 'inbox' || a === 'pgback') go('#/messages'); else if (a === 'chat') go('#/messages/' + b.dataset.uid);
+  }, true);
+
   return {
-    onRender(all) { last = all; insights(); banner(); sync(); findBtn(); inboxBtn(); adminBtn(); if (!once) { once = true; remind(); tour(); } },
+    onRender(all) { last = all; insights(); banner(); sync(); findBtn(); inboxBtn(); gsearchInit(); adminBtn(); if (!routed) { routed = true; route(); } if (!once) { once = true; remind(); tour(); } },
     selBtn(u) { try { let b = $('sel-prof'); if (!u) { b && b.remove(); return; } if (!b) { b = document.createElement('button'); b.id = 'sel-prof'; b.type = 'button'; b.dataset.act = 'viewp'; b.className = 'ghost sm mt-1.5'; $('sel-note').after(b); } b.dataset.uid = u.uid; b.textContent = '👤 ' + tx('প্রোফাইল ও রেকর্ড দেখুন', 'View profile & record'); } catch {} },
     toolsHtml: () => `<button data-act="people" class="ghost w-full !justify-start py-3">🔎 ${tx('মানুষ খুঁজুন (প্রোফাইল)', 'Find people (profiles)')}</button><button data-act="inbox" class="ghost w-full !justify-start py-3">💬 ${tx('মেসেজ', 'Messages')}</button><button data-act="stmt" class="ghost w-full !justify-start py-3">🧾 ${tx('স্টেটমেন্ট (PDF/প্রিন্ট)', 'Statement (PDF / Print)')}</button><button data-act="json" class="ghost w-full !justify-start py-3">💾 ${tx('আমার ডেটা ডাউনলোড (JSON)', 'Download my data (JSON)')}</button><button data-act="notifperm" class="ghost w-full !justify-start py-3">🔔 ${tx('ব্রাউজার রিমাইন্ডার চালু করুন', 'Enable browser reminders')}</button><button data-act="tour" class="ghost w-full !justify-start py-3">❓ ${tx('গাইড দেখুন', 'Show guide')}</button>`,
     profileTop() {
