@@ -1,5 +1,7 @@
 /* Extra features: insights, reminders, PWA, statement, profile extras, account tools */
-import { sendEmailVerification, deleteUser } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { sendEmailVerification, deleteUser, getAuth, createUserWithEmailAndPassword, signOut as signOutSecondary } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { firebaseConfig } from "./firebase-config.js";
 import { doc, deleteDoc, getDoc, setDoc, addDoc, updateDoc, collection, query, where, onSnapshot, getDocs, limit } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 export function initExtras(c) {
@@ -88,7 +90,7 @@ export function initExtras(c) {
       const r = repCalc(), j = me + JSON.stringify(r);
       if (j !== repJson) { repJson = j; updateDoc(doc(db, 'users', me), { rep: { ...r, updatedAt: Date.now() } }).catch(e => console.warn('record sync failed', e)); }
     }, 1500);
-    if (subUid !== me) { unsub && unsub(); unsubSt && unsubSt(); subUid = me; msgs = []; myStatus = 'active'; myReason = ''; isAdmin = false; watchMe(me);
+    if (subUid !== me) { unsub && unsub(); unsubSt && unsubSt(); subUid = me; msgs = []; myStatus = 'active'; myReason = ''; isAdmin = false; { const c0 = $('adm-console'); c0 && c0.remove(); } watchMe(me);
       unsub = onSnapshot(query(collection(db, 'messages'), where('participants', 'array-contains', me)), snap => { msgs = snap.docs.map(d => ({ id: d.id, ...d.data() })); chatList(); }, () => {}); }
   }
   const onTime = r => r && r.bCount ? Math.round((r.bCount - r.bLate) / r.bCount * 100) : null;
@@ -106,7 +108,7 @@ export function initExtras(c) {
     const me = get().me; let p = null;
     try { const sn = await getDoc(doc(db, 'users', uid)); p = sn.exists() ? sn.data() : null; } catch { /* fall back to cache */ }
     p = p || people.get(uid);
-    if (!p) return toast(tx('ইউজার পাওয়া যায়নি', 'User not found'), 'info');
+    if (!p || (p.hidden && uid !== me)) return toast(tx('ইউজার পাওয়া যায়নি', 'User not found'), 'info');
     const r = uid === me ? repCalc() : (p.rep || null), g = rating(r), on = onTime(r), rp = r && r.bTotal ? Math.round(r.bPaid / r.bTotal * 100) : null, lp = r && r.lTotal ? Math.round((r.lPaid || 0) / r.lTotal * 100) : null;
     const cell = (v, l, cls = '') => `<div class="glass rounded-2xl p-2.5 text-center"><div class="font-extrabold mono ${cls}">${v}</div><div class="text-[10px] text-mut">${l}</div></div>`;
     const mine = uid === me ? [] : acc().filter(v => v.puid === uid), sum = (a, f) => rd(a.reduce((x, v) => x + f(v), 0));
@@ -173,7 +175,7 @@ export function initExtras(c) {
     const q = el.value.trim().toLowerCase().replace(/^@/, ''); if (!q) { box.innerHTML = ''; return; }
     const run = f => getDocs(query(collection(db, 'users'), where(f, '>=', q), where(f, '<=', q + '\uf8ff'), limit(8)));
     try {
-      const [a, b] = await Promise.all([run('usernameLower'), run('nameLower')]), m = new Map(); [...a.docs, ...b.docs].forEach(d => d.data().status !== 'banned' && m.set(d.id, d.data()));
+      const [a, b] = await Promise.all([run('usernameLower'), run('nameLower')]), m = new Map(); [...a.docs, ...b.docs].forEach(d => !d.data().hidden && !['banned', 'deleted'].includes(d.data().status) && m.set(d.id, d.data()));
       box.innerHTML = m.size ? [...m.entries()].map(([id, u]) => `<button data-act="viewp" data-uid="${id}" class="ghost w-full !justify-start gap-3 py-2.5 text-left">${av(u.name, u.photo, 'sm')}<div class="min-w-0"><div class="font-bold text-sm truncate">${esc(u.name)}</div><div class="text-[11px] text-mut">@${esc(u.username)}${u.location ? ' · 📍 ' + esc(u.location) : ''}</div></div></button>`).join('') : `<p class="text-xs text-mut text-center py-4">${tx('কাউকে পাওয়া যায়নি', 'No one found')}</p>`;
     } catch { box.innerHTML = `<p class="text-xs text-rose-400 text-center py-4">${tx('খুঁজতে সমস্যা হয়েছে', 'Search failed')}</p>`; }
   }
@@ -182,19 +184,19 @@ export function initExtras(c) {
 
   /* ---------- status (flag / freeze / ban) + admin + reports ---------- */
   let isAdmin = false, myStatus = 'active', myReason = '', unsubSt = null;
-  const stLabel = s => ({ flagged: tx('🚩 অ্যাডমিন ফ্ল্যাগ করেছে', '🚩 Flagged by admin'), frozen: tx('🧊 অ্যাকাউন্ট ফ্রিজড', '🧊 Account frozen'), banned: tx('🚫 ব্যান করা হয়েছে', '🚫 Banned') }[s] || '');
+  const stLabel = s => ({ flagged: tx('🚩 অ্যাডমিন ফ্ল্যাগ করেছে', '🚩 Flagged by admin'), frozen: tx('🧊 অ্যাকাউন্ট ফ্রিজড', '🧊 Account frozen'), banned: tx('🚫 ব্যান করা হয়েছে', '🚫 Banned'), deleted: tx('🗑 মুছে ফেলা হয়েছে', '🗑 Deleted') }[s] || '');
   const REASONS = { notpay: ['টাকা ফেরত দিচ্ছে না', 'Not repaying money'], fake: ['ভুয়া/মিথ্যা হিসাব', 'False records'], scam: ['প্রতারণা', 'Scam / fraud'], harass: ['হয়রানি / অশালীন আচরণ', 'Harassment / abuse'], other: ['অন্যান্য', 'Other'] };
   const rLabel = k => (REASONS[k] || REASONS.other)[getLang() === 'bn' ? 0 : 1];
 
   function watchMe(me) {
     unsubSt = onSnapshot(doc(db, 'users', me), sn => { const d = sn.data() || {}; myStatus = d.status || 'active'; myReason = d.statusReason || ''; enforce(); }, () => {});
-    getDoc(doc(db, 'admins', me)).then(sn => { isAdmin = sn.exists(); adminBtn(); }).catch(() => {});
+    getDoc(doc(db, 'admins', me)).then(sn => { isAdmin = sn.exists(); if (isAdmin) { updateDoc(doc(db, 'users', me), { hidden: true }).catch(() => {}); adminPanel(); } }).catch(() => {});
   }
   function enforce() {
     const wall = $('ban-wall'); let bar = $('stat-bar'), css = $('frz-css');
-    if (myStatus === 'banned') {
+    if (myStatus === 'banned' || myStatus === 'deleted') {
       if (!wall) { const d = document.createElement('div'); d.id = 'ban-wall'; d.className = 'fixed inset-0 z-[100] flex items-center justify-center p-6 text-center'; d.style.background = 'var(--bg,#060913)';
-        d.innerHTML = `<div class="glass rounded-3xl p-8 max-w-sm space-y-3"><div class="text-5xl">🚫</div><h2 class="text-xl font-extrabold">${tx('আপনার অ্যাকাউন্ট ব্যান করা হয়েছে', 'Your account has been banned')}</h2>${myReason ? `<p class="text-sm text-mut">${esc(myReason)}</p>` : ''}<button data-act="logout" class="btn w-full">${tx('লগআউট', 'Log out')}</button></div>`; document.body.appendChild(d); }
+        d.innerHTML = `<div class="glass rounded-3xl p-8 max-w-sm space-y-3"><div class="text-5xl">🚫</div><h2 class="text-xl font-extrabold">${myStatus === 'deleted' ? tx('আপনার অ্যাকাউন্ট মুছে ফেলা হয়েছে', 'Your account has been deleted') : tx('আপনার অ্যাকাউন্ট ব্যান করা হয়েছে', 'Your account has been banned')}</h2>${myReason ? `<p class="text-sm text-mut">${esc(myReason)}</p>` : ''}<button data-act="logout" class="btn w-full">${tx('লগআউট', 'Log out')}</button></div>`; document.body.appendChild(d); }
       return;
     }
     wall && wall.remove();
@@ -205,6 +207,7 @@ export function initExtras(c) {
     bar.innerHTML = `<b>${stLabel(myStatus)}</b>${myStatus === 'frozen' ? ' — ' + tx('আপনি এখন নতুন হিসাব, পরিশোধ বা মেসেজ করতে পারবেন না।', 'You cannot add entries, make payments or send messages for now.') : ''}${myReason ? `<div class="text-mut mt-1">${esc(myReason)}</div>` : ''}`;
   }
   function adminBtn() {
+    return; // admins use the full-screen console instead
     if (!isAdmin || $('adm-btn')) return; const anchor = $('fp-btn') || document.querySelector('header [data-act="tools"]'); if (!anchor) return;
     const b = document.createElement('button'); b.id = 'adm-btn'; b.dataset.act = 'admin'; b.className = 'ghost'; b.textContent = '🛡️'; b.title = 'Admin'; b.setAttribute('aria-label', 'admin'); anchor.before(b);
   }
@@ -222,19 +225,48 @@ export function initExtras(c) {
     catch { toast(tx('রিপোর্ট পাঠানো যায়নি (আগেই রিপোর্ট করে থাকতে পারেন)', 'Could not send report (you may have already reported this user)'), 'info'); }
   }
 
-  const uBtns = (uid, rid) => `<button data-act="viewp" data-uid="${uid}" class="ghost sm">👤</button><button data-act="admentries" data-uid="${uid}" class="ghost sm">📄 ${tx('হিসাব', 'Entries')}</button><button data-act="admset" data-uid="${uid}" data-v="flagged" data-rid="${rid || ''}" class="ghost sm">🚩 ${tx('ফ্ল্যাগ', 'Flag')}</button><button data-act="admset" data-uid="${uid}" data-v="frozen" data-rid="${rid || ''}" class="ghost sm">🧊 ${tx('ফ্রিজ', 'Freeze')}</button><button data-act="admset" data-uid="${uid}" data-v="banned" data-rid="${rid || ''}" class="ghost sm red">🚫 ${tx('ব্যান', 'Ban')}</button><button data-act="admset" data-uid="${uid}" data-v="active" data-rid="${rid || ''}" class="ghost sm">✅ ${tx('সক্রিয়', 'Restore')}</button>${rid ? `<button data-act="admdismiss" data-rid="${rid}" class="ghost sm">🗑 ${tx('খারিজ', 'Dismiss')}</button>` : ''}`;
+  const uBtns = (uid, rid) => `<button data-act="viewp" data-uid="${uid}" class="ghost sm">👤</button><button data-act="admentries" data-uid="${uid}" class="ghost sm">📄 ${tx('হিসাব', 'Entries')}</button><button data-act="admset" data-uid="${uid}" data-v="flagged" data-rid="${rid || ''}" class="ghost sm">🚩 ${tx('ফ্ল্যাগ', 'Flag')}</button><button data-act="admset" data-uid="${uid}" data-v="frozen" data-rid="${rid || ''}" class="ghost sm">🧊 ${tx('ফ্রিজ', 'Freeze')}</button><button data-act="admset" data-uid="${uid}" data-v="banned" data-rid="${rid || ''}" class="ghost sm red">🚫 ${tx('ব্যান', 'Ban')}</button><button data-act="admset" data-uid="${uid}" data-v="active" data-rid="${rid || ''}" class="ghost sm">✅ ${tx('সক্রিয়', 'Restore')}</button>${rid ? `<button data-act="admdismiss" data-rid="${rid}" class="ghost sm">✖ ${tx('খারিজ', 'Dismiss')}</button>` : ''}<button data-act="admdel" data-uid="${uid}" class="ghost sm red">🗑 ${tx('মুছুন', 'Delete')}</button>`;
+  let admUsers = [], admFilter = 'all';
+  const admCss = () => { if ($('adm-css')) return; const st = document.createElement('style'); st.id = 'adm-css'; st.textContent = '.atab{padding:.45rem .9rem;border-radius:999px;font-size:13px;font-weight:600;opacity:.75;border:1px solid rgba(148,163,184,.3);background:transparent;color:inherit;cursor:pointer}.atab.on{background:linear-gradient(90deg,#10b981,#0ea5e9);color:#fff;opacity:1;border-color:transparent}'; document.head.appendChild(st); };
   function adminPanel() {
-    openModal(`<div class="flex justify-between items-center mb-3"><h3 class="font-extrabold">🛡️ Admin</h3><button data-act="close" class="ghost sm" aria-label="close">✕</button></div>
-      <div class="seg mb-3"><button data-act="admtab" data-v="open" class="tab on">${tx('নতুন রিপোর্ট', 'Open reports')}</button><button data-act="admtab" data-v="done" class="tab">${tx('নিষ্পন্ন', 'Resolved')}</button><button data-act="admtab" data-v="users" class="tab">${tx('ইউজার', 'Users')}</button></div>
-      <div id="adm-body" class="space-y-3"></div>`, 'admin');
-    admTab('open');
+    closeModal(); admCss();
+    if (!$('adm-console')) {
+      const o = document.createElement('div'); o.id = 'adm-console'; o.className = 'fixed inset-0 overflow-y-auto'; o.style.cssText = 'z-index:40;background:var(--bg,#060913)';
+      const tabs = [['overview', '📊 ' + tx('ওভারভিউ', 'Overview')], ['open', '🚩 ' + tx('রিপোর্ট', 'Reports')], ['done', '✔ ' + tx('নিষ্পন্ন', 'Resolved')], ['users', '👥 ' + tx('ইউজার', 'Users')], ['add', '➕ ' + tx('ইউজার যোগ', 'Add user')]];
+      o.innerHTML = `<div class="max-w-4xl mx-auto p-4 sm:p-6"><div class="glass rounded-3xl p-4 flex items-center justify-between gap-3 mb-4"><div class="flex items-center gap-3"><span class="text-3xl">🛡️</span><div><div class="font-extrabold">Admin Console</div><div class="text-[11px] text-mut">${esc(get().profile.name || 'admin')}</div></div></div><button data-act="logout" class="ghost sm">⎋ ${tx('লগআউট', 'Logout')}</button></div>
+        <div class="flex flex-wrap gap-2 mb-4">${tabs.map(([v, l]) => `<button data-act="admtab" data-v="${v}" class="atab">${l}</button>`).join('')}</div><div id="adm-body" class="space-y-3"></div></div>`;
+      document.body.appendChild(o);
+    }
+    admTab(window.__admView || 'overview');
+  }
+  async function loadUsers() { const sn = await getDocs(query(collection(db, 'users'), limit(500))); admUsers = sn.docs.map(d => ({ id: d.id, ...d.data() })).filter(u => !u.hidden); }
+  const userRow = u => `<div class="glass rounded-2xl p-3 text-sm space-y-2"><div class="flex items-center gap-2">${av(u.name, u.photo, 'sm')}<div class="min-w-0"><b>${esc(u.name || '?')}</b> <span class="text-mut text-xs">@${esc(u.username || '')}</span> ${u.status && u.status !== 'active' ? `<span class="tag rose">${stLabel(u.status)}</span>` : ''}${u.status && u.status !== 'active' && u.statusReason ? `<div class="text-[11px] text-mut">${esc(u.statusReason)}</div>` : ''}</div></div>${u.status === 'deleted' ? '' : `<div class="flex flex-wrap gap-1.5">${uBtns(u.id, '')}</div>`}</div>`;
+  function drawUsers() {
+    const box = $('adm-list'); if (!box) return; const q = (($('adm-q') || {}).value || '').trim().toLowerCase().replace(/^@/, '');
+    const rows = admUsers.filter(u => (admFilter === 'all' || (u.status || 'active') === admFilter) && (!q || (u.nameLower || '').includes(q) || (u.usernameLower || '').includes(q))).slice(0, 60);
+    box.innerHTML = rows.length ? rows.map(userRow).join('') : `<p class="text-xs text-mut text-center py-6">${tx('কাউকে পাওয়া যায়নি', 'No users found')}</p>`;
   }
   async function admTab(v) {
-    document.querySelectorAll('[data-act="admtab"]').forEach(b => b.classList.toggle('on', b.dataset.v === v));
-    const box = $('adm-body'); if (!box) return; window.__admView = v;
-    if (v === 'users') { box.innerHTML = `<input id="adm-q" class="inp" autocapitalize="none" placeholder="${tx('নাম বা @ইউজারনেম', 'Name or @username')}"><div id="adm-res" class="space-y-2"></div>`; return; }
-    box.innerHTML = `<p class="text-xs text-mut text-center py-6">…</p>`;
+    window.__admView = v; document.querySelectorAll('[data-act="admtab"]').forEach(b => b.classList.toggle('on', b.dataset.v === v));
+    const box = $('adm-body'); if (!box) return; box.innerHTML = `<p class="text-xs text-mut text-center py-6">…</p>`;
     try {
+      if (v === 'overview') {
+        await loadUsers(); const rs = await getDocs(query(collection(db, 'reports'), where('status', '==', 'open'), limit(200))), c = k => admUsers.filter(u => (u.status || 'active') === k).length;
+        const card = (n, l, cls = '') => `<div class="glass rounded-2xl p-4 text-center"><div class="text-2xl font-extrabold mono ${cls}">${n}</div><div class="text-[11px] text-mut">${l}</div></div>`;
+        box.innerHTML = `<div class="grid grid-cols-2 sm:grid-cols-4 gap-3">${card(admUsers.length, tx('মোট ইউজার', 'Total users'))}${card(c('active'), tx('সক্রিয়', 'Active'), 'text-emerald-500')}${card(rs.size, tx('নতুন রিপোর্ট', 'Open reports'), rs.size ? 'text-rose-500' : '')}${card(c('flagged'), '🚩 ' + tx('ফ্ল্যাগড', 'Flagged'))}${card(c('frozen'), '🧊 ' + tx('ফ্রিজড', 'Frozen'))}${card(c('banned'), '🚫 ' + tx('ব্যান্ড', 'Banned'))}${card(c('deleted'), '🗑 ' + tx('মুছে ফেলা', 'Deleted'))}</div>`; return;
+      }
+      if (v === 'users') {
+        await loadUsers(); const chips = ['all', 'flagged', 'frozen', 'banned', 'deleted'];
+        box.innerHTML = `<input id="adm-q" class="inp" autocapitalize="none" placeholder="${tx('নাম বা @ইউজারনেম', 'Name or @username')}"><div class="flex flex-wrap gap-1.5">${chips.map(k => `<button data-act="admfilter" data-v="${k}" class="atab ${admFilter === k ? 'on' : ''}">${k === 'all' ? tx('সব', 'All') : stLabel(k) || k}</button>`).join('')}</div><div id="adm-list" class="space-y-2"></div>`; drawUsers(); return;
+      }
+      if (v === 'add') {
+        box.innerHTML = `<div class="glass rounded-2xl p-4 space-y-3"><h3 class="font-extrabold">➕ ${tx('নতুন ইউজার তৈরি', 'Create a new user')}</h3>
+          <div><label class="lb">${tx('নাম', 'Name')}</label><input id="au-name" class="inp" maxlength="40"></div>
+          <div><label class="lb">${tx('ইউজারনেম', 'Username')}</label><input id="au-user" class="inp" autocapitalize="none" placeholder="a-z 0-9 _ ."></div>
+          <div><label class="lb">Email</label><input id="au-email" type="email" class="inp" autocapitalize="none"></div>
+          <div><label class="lb">${tx('পাসওয়ার্ড (কমপক্ষে ৬)', 'Password (min 6)')}</label><input id="au-pass" type="text" class="inp" autocomplete="off"></div>
+          <button data-act="admadd" class="btn w-full py-3">${tx('ইউজার তৈরি করুন', 'Create user')}</button><p class="text-[11px] text-mut">${tx('ইউজার এই ইমেইল-পাসওয়ার্ড দিয়ে লগইন করতে পারবে। পাসওয়ার্ডটি তাকে জানিয়ে দিন।', 'The user can log in with this email and password. Share the password with them.')}</p></div>`; return;
+      }
       const sn = await getDocs(query(collection(db, 'reports'), where('status', 'in', v === 'open' ? ['open'] : ['resolved', 'dismissed']), limit(50)));
       const rows = sn.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => b.createdAt - a.createdAt);
       box.innerHTML = rows.length ? rows.map(r => `<div class="glass rounded-2xl p-3 text-sm space-y-2"><div class="flex justify-between gap-2 flex-wrap"><div><b>${esc(r.targetName)}</b> <span class="text-mut text-xs">@${esc(r.targetUsername)}</span></div><span class="text-[10px] text-mut">${ago(r.createdAt)}</span></div>
@@ -247,7 +279,25 @@ export function initExtras(c) {
     await updateDoc(doc(db, 'users', uid), { status, statusReason: reason, statusAt: Date.now(), statusBy: me });
     if (rid) await updateDoc(doc(db, 'reports', rid), { status: 'resolved', action: status, resolvedBy: me, resolvedAt: Date.now() });
     notify(uid, '', 'message', { preview: status === 'active' ? tx('✅ আপনার অ্যাকাউন্ট আবার সক্রিয় করা হয়েছে', '✅ Your account has been restored') : stLabel(status) + (reason ? ': ' + reason : '') }).catch(() => {});
-    toast(tx('আপডেট হয়েছে', 'Updated'), 'ok'); admTab(window.__admView || 'open');
+    toast(tx('আপডেট হয়েছে', 'Updated'), 'ok'); admTab(window.__admView || 'overview');
+  }
+  async function admDelete(uid) {
+    const me = get().me; if (uid === me) return;
+    if (prompt(tx('ইউজারকে মুছে ফেলতে DELETE লিখুন', 'Type DELETE to remove this user'), '') !== 'DELETE') return;
+    const u = (await getDoc(doc(db, 'users', uid))).data() || {};
+    if (u.usernameLower) await deleteDoc(doc(db, 'usernames', u.usernameLower)).catch(() => {});
+    await deleteDoc(doc(db, 'private', uid)).catch(() => {});
+    await updateDoc(doc(db, 'users', uid), { status: 'deleted', statusReason: tx('অ্যাডমিন অ্যাকাউন্ট মুছে ফেলেছে', 'Removed by admin'), statusAt: Date.now(), statusBy: me, name: 'Deleted user', nameLower: 'deleted user', username: 'deleted', usernameLower: 'deleted_' + uid.slice(0, 6), photo: '', bio: '', location: '', occupation: '', rep: null });
+    toast(tx('ইউজার মুছে ফেলা হয়েছে', 'User deleted'), 'ok'); admTab(window.__admView || 'overview');
+  }
+  async function admAdd() {
+    const name = $('au-name').value.trim(), un = $('au-user').value.trim().toLowerCase().replace(/^@/, ''), email = $('au-email').value.trim(), pw = $('au-pass').value;
+    if (!name || !email || pw.length < 6 || !/^[a-z0-9_.]{3,20}$/.test(un)) return toast(tx('নাম, ইউজারনেম (৩-২০, a-z 0-9 _ .), ইমেইল ও ৬+ অক্ষরের পাসওয়ার্ড দিন', 'Enter name, username (3-20, a-z 0-9 _ .), email and a 6+ character password'), 'info');
+    if ((await getDoc(doc(db, 'usernames', un))).exists()) return toast(tx('ইউজারনেমটি আগেই নেওয়া', 'Username already taken'), 'info');
+    const sec = initializeApp(firebaseConfig, 'sec' + Date.now()), sa = getAuth(sec);
+    let uid; try { uid = (await createUserWithEmailAndPassword(sa, email, pw)).user.uid; } finally { signOutSecondary(sa).catch(() => {}); }
+    await setDoc(doc(db, 'usernames', un), { uid }); await setDoc(doc(db, 'users', uid), { uid, username: un, usernameLower: un, name, nameLower: name.toLowerCase() });
+    toast(tx('ইউজার তৈরি হয়েছে', 'User created'), 'ok'); ['au-name', 'au-user', 'au-email', 'au-pass'].forEach(i => { $(i).value = ''; });
   }
   async function admDismiss(rid) { await updateDoc(doc(db, 'reports', rid), { status: 'dismissed', resolvedBy: get().me, resolvedAt: Date.now() }); toast(tx('খারিজ করা হয়েছে', 'Dismissed'), 'ok'); admTab(window.__admView || 'open'); }
   async function admEntries(uid) {
@@ -259,18 +309,13 @@ export function initExtras(c) {
       return `<div class="glass rounded-2xl p-3 text-xs flex justify-between gap-2"><div><b>${dir === 'lent' ? '⬆️ ' + tx('দিয়েছে', 'Lent to') : '⬇️ ' + tx('নিয়েছে', 'Borrowed from')} ${esc(other || '?')}</b><div class="text-mut">${esc(e.date || '')}${e.dueDate ? ' → ' + esc(e.dueDate) : ''} · ${esc(e.status)}</div></div><div class="text-right mono"><div>${money(e.amount)}</div><div class="${od ? 'text-rose-500' : 'text-mut'}">${tx('বাকি', 'Due')} ${money(rem)}${od ? ' ⏰' : ''}</div></div></div>`; });
     openModal(`<div class="flex justify-between items-center mb-3"><button data-act="admin" class="ghost sm">← Admin</button><button data-act="close" class="ghost sm" aria-label="close">✕</button></div><h3 class="font-extrabold mb-1">📄 ${esc(p.name || '')} <span class="text-mut text-xs font-normal">@${esc(p.username || '')}</span></h3><p class="text-[11px] text-mut mb-3">${tx('শুধু দুই-পক্ষের হিসাব (ব্যক্তিগত হিসাব দেখা যায় না)', 'Two-party entries only (personal entries are not visible)')}</p><div class="space-y-2">${rows.join('') || `<p class="text-xs text-mut text-center py-6">${tx('কোনো হিসাব নেই', 'No entries')}</p>`}</div>`, 'admin');
   }
-  let admTm;
-  document.addEventListener('input', e => { if (e.target.id !== 'adm-q') return; clearTimeout(admTm); admTm = setTimeout(async () => {
-    const box = $('adm-res'), q = e.target.value.trim().toLowerCase().replace(/^@/, ''); if (!box) return; if (!q) { box.innerHTML = ''; return; }
-    const run = f => getDocs(query(collection(db, 'users'), where(f, '>=', q), where(f, '<=', q + '\uf8ff'), limit(10)));
-    try { const [a, b] = await Promise.all([run('usernameLower'), run('nameLower')]), m = new Map(); [...a.docs, ...b.docs].forEach(d => m.set(d.id, d.data()));
-      box.innerHTML = m.size ? [...m.entries()].map(([id, u]) => `<div class="glass rounded-2xl p-3 text-sm space-y-2"><div class="flex items-center gap-2">${av(u.name, u.photo, 'sm')}<div><b>${esc(u.name)}</b> <span class="text-mut text-xs">@${esc(u.username)}</span> ${u.status && u.status !== 'active' ? `<span class="tag rose">${stLabel(u.status)}</span>` : ''}</div></div><div class="flex flex-wrap gap-1.5">${uBtns(id, '')}</div></div>`).join('') : `<p class="text-xs text-mut text-center py-4">${tx('কাউকে পাওয়া যায়নি', 'No one found')}</p>`; } catch (er) { box.innerHTML = `<p class="text-xs text-rose-400">${esc(er.message)}</p>`; } }, 280); });
+  document.addEventListener('input', e => { if (e.target.id === 'adm-q') drawUsers(); });
   document.addEventListener('click', async e => {
     const b = e.target.closest('[data-act]'); if (!b) return; const a = b.dataset.act, d = b.dataset;
-    if (a === 'logout') { const w = $('ban-wall'); w && w.remove(); return; }
+    if (a === 'logout') { const w = $('ban-wall'), c1 = $('adm-console'); w && w.remove(); c1 && c1.remove(); isAdmin = false; return; }
     try {
       if (a === 'report') reportForm(d.uid); else if (a === 'reportsend') await reportSend(d.uid); else if (a === 'admin') adminPanel(); else if (a === 'admtab') await admTab(d.v);
-      else if (a === 'admset') await admSet(d.uid, d.v, d.rid); else if (a === 'admdismiss') await admDismiss(d.rid); else if (a === 'admentries') await admEntries(d.uid);
+      else if (a === 'admset') await admSet(d.uid, d.v, d.rid); else if (a === 'admdismiss') await admDismiss(d.rid); else if (a === 'admentries') await admEntries(d.uid); else if (a === 'admdel') await admDelete(d.uid); else if (a === 'admadd') await admAdd(); else if (a === 'admfilter') { admFilter = d.v; document.querySelectorAll('[data-act="admfilter"]').forEach(x => x.classList.toggle('on', x.dataset.v === admFilter)); drawUsers(); }
     } catch (err) { toast(err.message || 'Error', 'err'); }
   });
 

@@ -388,7 +388,7 @@ async function searchUsers() {
   const run = f => getDocs(query(collection(db, 'users'), where(f, '>=', q), where(f, '<=', q + '\uf8ff'), limit(5)));
   try {
     const [a, b] = await Promise.all([run('usernameLower'), run('nameLower')]);
-    found = new Map(); [...a.docs, ...b.docs].forEach(d => { if (d.id !== me) found.set(d.id, d.data()); });
+    found = new Map(); [...a.docs, ...b.docs].forEach(d => { if (d.id !== me && !d.data().hidden && !['banned', 'deleted'].includes(d.data().status)) found.set(d.id, d.data()); });
     box.innerHTML = found.size ? [...found.values()].map(u => `<button type="button" data-act="pick" data-uid="${u.uid}" class="w-full text-left px-3 py-2.5 hover:bg-emerald-500/10 flex items-center gap-3 transition">${av(u.name, u.photo, 'sm')}<div class="min-w-0"><div class="text-sm font-bold truncate">${esc(u.name)}</div><div class="text-[11px] text-mut">@${esc(u.username)}</div></div></button>`).join('')
       : `<div class="px-3.5 py-3 text-xs text-mut">${t('noUser')}</div>`;
     box.classList.remove('hidden');
