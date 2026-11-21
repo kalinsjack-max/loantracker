@@ -144,7 +144,7 @@ service cloud.firestore {
         && request.resource.data.text is string && request.resource.data.text.size() <= 500;
       allow read: if signedIn() && request.auth.uid in resource.data.participants;
       allow update: if signedIn() && resource.data.to == request.auth.uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'delivered', 'readAt', 'deliveredAt']);
       allow delete: if signedIn() && resource.data.from == request.auth.uid;
     }
     // Android push tokens (one doc per device). Nobody can read them from a client;
@@ -155,6 +155,18 @@ service cloud.firestore {
       allow delete: if signedIn() && resource.data.uid == request.auth.uid;
     }
 
+    // online status (heartbeat) - readable by signed-in users, writable by the owner
+    match /presence/{uid} {
+      allow read: if signedIn();
+      allow write: if signedIn() && request.auth.uid == uid;
+    }
+    // "typing..." signal: doc id = senderUid_receiverUid
+    match /typing/{id} {
+      allow read: if signedIn() && (resource == null || resource.data.to == request.auth.uid || resource.data.from == request.auth.uid);
+      allow create, update: if signedIn() && statusOk() && request.resource.data.from == request.auth.uid
+        && id == request.auth.uid + '_' + request.resource.data.to;
+      allow delete: if signedIn() && resource.data.from == request.auth.uid;
+    }
     match /notifications/{id} {
       allow create: if signedIn() && statusOk() && request.resource.data.fromUid == request.auth.uid;
       allow read, update, delete: if signedIn() && resource.data.toUid == request.auth.uid;
