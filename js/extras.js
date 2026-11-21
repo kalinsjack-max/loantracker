@@ -2,7 +2,7 @@
 import { sendEmailVerification, deleteUser, getAuth, createUserWithEmailAndPassword, signOut as signOutSecondary } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { firebaseConfig } from "./firebase-config.js";
-import { doc, deleteDoc, getDoc, setDoc, addDoc, updateDoc, collection, query, where, onSnapshot, getDocs, limit } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { doc, deleteDoc, getDoc, setDoc, addDoc, updateDoc, collection, query, where, onSnapshot, getDocs, limit, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 export function initExtras(c) {
   const { auth, db, esc, money, getLang, toast, openModal, closeModal, signOut, get, av, people, notify } = c;
@@ -90,10 +90,11 @@ export function initExtras(c) {
       const r = repCalc(), j = me + JSON.stringify(r);
       if (j !== repJson) { repJson = j; updateDoc(doc(db, 'users', me), { rep: { ...r, updatedAt: Date.now() } }).catch(e => console.warn('record sync failed', e)); }
     }, 1500);
-    if (subUid !== me) { unsub && unsub(); unsubSt && unsubSt(); subUid = me; msgs = []; myStatus = 'active'; myReason = ''; isAdmin = false; { const c0 = $('adm-console'); c0 && c0.remove(); } watchMe(me);
+    if (subUid !== me) { unsub && unsub(); unsubSt && unsubSt(); subUid = me; msgs = []; myStatus = 'active'; myReason = ''; isAdmin = false; { const c0 = $('adm-console'); c0 && c0.remove(); } watchMe(me); startPresence();
       msgReady = false;
       unsub = onSnapshot(query(collection(db, 'messages'), where('participants', 'array-contains', me)), snap => {
         if (msgReady) snap.docChanges().forEach(c => { if (c.type === 'added') { const m = c.doc.data(); if (m.to === me && !m.read) incoming(m); } });
+        snap.docs.forEach(d => { const m = d.data(); if (m.to === me && !m.delivered) updateDoc(d.ref, { delivered: true, deliveredAt: Date.now() }).catch(() => {}); });
         msgReady = true; msgs = snap.docs.map(d => ({ id: d.id, ...d.data() })); chatList(); drawInbox(); badge();
       }, () => {}); }
   }
@@ -139,20 +140,21 @@ export function initExtras(c) {
   const thread = uid => msgs.filter(m => m.participants.includes(uid)).sort((a, b) => a.ts - b.ts);
   function chatList() {
     const el = $('chat-list') || $('pg-msgs'); if (!el || !chatUid) return; const me = get().me, th = thread(chatUid);
-    el.innerHTML = th.length ? th.map(m => `<div class="flex ${m.from === me ? 'justify-end' : ''}"><div class="rounded-2xl px-3 py-2 text-sm max-w-[80%] break-words ${m.from === me ? 'bg-emerald-500/20' : 'bg-slate-500/15'}">${esc(m.text)}<div class="text-[10px] text-mut mt-0.5">${ago(m.ts)}</div></div></div>`).join('') : `<p class="text-xs text-mut text-center py-6">${tx('কোনো মেসেজ নেই। প্রথম মেসেজ পাঠান', 'No messages yet. Say hello!')}</p>`;
+    el.innerHTML = th.length ? th.map(m => `<div class="flex ${m.from === me ? 'justify-end' : ''}"><div class="rounded-2xl px-3 py-2 text-sm max-w-[80%] break-words ${m.from === me ? 'bg-emerald-500/20' : 'bg-slate-500/15'}">${esc(m.text)}<div class="text-[10px] text-mut mt-0.5">${ago(m.ts)}${m.from === me ? ' · ' + tick(m) : ''}</div></div></div>`).join('') : `<p class="text-xs text-mut text-center py-6">${tx('কোনো মেসেজ নেই। প্রথম মেসেজ পাঠান', 'No messages yet. Say hello!')}</p>`;
     el.scrollTop = el.scrollHeight;
-    th.filter(m => m.to === me && !m.read).forEach(m => updateDoc(doc(db, 'messages', m.id), { read: true }).catch(() => {}));
+    if (peerTyping) setTyping(true);
+    if (document.visibilityState === 'visible') th.filter(m => m.to === me && !m.read).forEach(m => updateDoc(doc(db, 'messages', m.id), { read: true, readAt: Date.now(), delivered: true }).catch(() => {}));
   }
   async function openChat(uid) {
     chatUid = uid; const p = await userDoc(uid) || {};
-    openModal(`<div class="flex justify-between items-center mb-3"><div class="flex items-center gap-3 min-w-0"><button data-act="inbox" class="ghost sm" aria-label="back">←</button>${av(p.name, p.photo, 'sm')}<div class="min-w-0"><div class="font-extrabold truncate">${esc(p.name || '')}</div><div class="text-[11px] text-mut">@${esc(p.username || '')}</div></div></div><button data-act="close" class="ghost sm" aria-label="close">✕</button></div>
+    openModal(`<div class="flex justify-between items-center mb-3"><div class="flex items-center gap-3 min-w-0"><button data-act="inbox" class="ghost sm" aria-label="back">←</button>${av(p.name, p.photo, 'sm')}<div class="min-w-0"><div class="font-extrabold truncate">${esc(p.name || '')}</div><div class="text-[11px] text-mut">@${esc(p.username || '')}</div><div id="peer-status" class="text-[11px] text-mut"></div></div></div><button data-act="close" class="ghost sm" aria-label="close">✕</button></div>
     <div id="chat-list" class="space-y-2 overflow-y-auto" style="max-height:50vh;min-height:150px"></div>
     <div class="flex gap-2 mt-3"><input id="chat-in" class="inp" maxlength="500" placeholder="${tx('মেসেজ লিখুন…', 'Type a message…')}" autocomplete="off"><button data-act="chatsend" data-uid="${uid}" class="btn" aria-label="send">➤</button></div>`, 'chat');
-    chatList(); setTimeout(() => $('chat-in') && $('chat-in').focus(), 60);
+    chatList(); watchPeer(uid); drawPresence(); setTimeout(() => $('chat-in') && $('chat-in').focus(), 60);
   }
   async function sendMsg(uid) {
-    const inp = $('chat-in') || $('pg-in'), text = inp ? inp.value.trim() : ''; if (!text || !uid) return; const me = get().me; inp.value = '';
-    try { await addDoc(collection(db, 'messages'), { participants: [me, uid], from: me, to: uid, text: text.slice(0, 500), ts: Date.now(), read: false }); }
+    const inp = $('chat-in') || $('pg-in'), text = inp ? inp.value.trim() : ''; if (!text || !uid) return; const me = get().me; inp.value = ''; typingPing(false);
+    try { await addDoc(collection(db, 'messages'), { participants: [me, uid], from: me, to: uid, text: text.slice(0, 500), ts: Date.now(), read: false, delivered: false }); }
     catch { inp.value = text; toast(tx('মেসেজ পাঠানো যায়নি', 'Could not send message'), 'info'); }
   }
   const baseTitle = document.title.replace(/^\(\d+\) /, '');
@@ -182,7 +184,7 @@ export function initExtras(c) {
       : `<p class="text-center text-sm text-mut py-10">📭 ${tx('ইনবক্স খালি। কেউ মেসেজ পাঠালে এখানে দেখা যাবে।', 'Your inbox is empty. Messages will appear here.')}</p>`;
   }
   function inbox() {
-    chatUid = null;
+    chatUid = null; unwatchPeer();
     openModal(`<div class="flex justify-between items-center mb-3"><h3 class="font-extrabold">💬 ${tx('ইনবক্স', 'Inbox')}</h3><div class="flex gap-2"><button data-act="newmsg" class="btn sm">✏️ ${tx('নতুন মেসেজ', 'New message')}</button><button data-act="close" class="ghost sm" aria-label="close">✕</button></div></div><div id="inbox-list" class="space-y-2 overflow-y-auto" style="max-height:60vh"></div>`, 'inbox');
     drawInbox();
   }
@@ -441,17 +443,17 @@ export function initExtras(c) {
     const box = $('pg-main'); if (!box) return;
     if (!pgUid) { box.innerHTML = `<div class="m-auto text-center text-mut"><div class="text-5xl mb-2">💬</div><p class="text-sm">${tx('একটি কথোপকথন বেছে নিন বা নতুন মেসেজ পাঠান', 'Select a conversation or start a new message')}</p></div>`; return; }
     const uid = pgUid, p = await userDoc(uid) || {}; if (pgUid !== uid || !$('pg-main')) return;
-    box.innerHTML = `<div class="flex items-center gap-3 pb-3 mb-3 border-b" style="border-color:var(--bd)"><button data-act="pgback" class="ghost sm md:hidden" aria-label="back">←</button>${av(p.name, p.photo, 'sm')}<div class="min-w-0 flex-1"><div class="font-extrabold truncate">${esc(p.name || '')}</div><div class="text-[11px] text-mut">@${esc(p.username || '')}</div></div><button data-act="viewp" data-uid="${uid}" class="ghost sm">👤 ${tx('প্রোফাইল', 'Profile')}</button></div>
+    box.innerHTML = `<div class="flex items-center gap-3 pb-3 mb-3 border-b" style="border-color:var(--bd)"><button data-act="pgback" class="ghost sm md:hidden" aria-label="back">←</button>${av(p.name, p.photo, 'sm')}<div class="min-w-0 flex-1"><div class="font-extrabold truncate">${esc(p.name || '')}</div><div class="text-[11px] text-mut">@${esc(p.username || '')}</div><div id="peer-status" class="text-[11px] text-mut"></div></div><button data-act="viewp" data-uid="${uid}" class="ghost sm">👤 ${tx('প্রোফাইল', 'Profile')}</button></div>
       <div id="pg-msgs" class="flex-1 space-y-2 overflow-y-auto" style="min-height:40vh;max-height:56vh"></div>
       <div class="flex gap-2 mt-3"><input id="pg-in" class="inp" maxlength="500" autocomplete="off" placeholder="${tx('মেসেজ লিখুন…', 'Type a message…')}"><button data-act="chatsend" data-uid="${uid}" class="btn" aria-label="send">➤</button></div>`;
-    chatList(); setTimeout(() => $('pg-in') && $('pg-in').focus(), 60);
+    chatList(); watchPeer(uid); drawPresence(); setTimeout(() => $('pg-in') && $('pg-in').focus(), 60);
   }
   function route() {
     if (!get().me || isAdmin) return;
     const parts = location.hash.replace(/^#\/?/, '').split('/'), page = parts[0] || '', arg = parts[1] || '', m = $('modal'), pg = $('pg');
     curPage = page; setActive(page); window.scrollTo(0, 0);
     const hd = document.querySelector('#app > header'); if (hd) document.documentElement.style.setProperty('--hdr', (hd.getBoundingClientRect().bottom + 12) + 'px');
-    if (page !== 'messages') chatUid = null;
+    if (page !== 'messages') { chatUid = null; unwatchPeer(); }
     if (page === 'messages') {
       document.body.classList.add('pg-on'); m.classList.remove('as-page'); if (m.classList.contains('open')) closeModal(); showMessages(arg);
     } else if (MODALS[page]) {
@@ -476,6 +478,55 @@ export function initExtras(c) {
     if (a === 'home') go('#/'); else if (a === 'notifs') go('#/notifications'); else if (a === 'tools') go('#/tools'); else if (a === 'profile') go('#/profile');
     else if (a === 'inbox' || a === 'pgback') go('#/messages'); else if (a === 'chat') go('#/messages/' + b.dataset.uid);
   }, true);
+
+
+  /* ---------- message status (sent / delivered / read), typing, online ---------- */
+  let peerTyping = false, peerPresence = null, peerUnsubs = [], peerTick = null, tyExp = null, lastTyping = 0, typTm = null, hb = null;
+  (function msgCss() {
+    if ($('msg-css')) return; const st = document.createElement('style'); st.id = 'msg-css';
+    st.textContent = '.tdot{width:6px;height:6px;border-radius:50%;background:#94a3b8;display:inline-block;animation:tdot 1.2s infinite ease-in-out}.tdot:nth-child(2){animation-delay:.15s}.tdot:nth-child(3){animation-delay:.3s}@keyframes tdot{0%,60%,100%{transform:translateY(0);opacity:.4}30%{transform:translateY(-4px);opacity:1}}@media(prefers-reduced-motion:reduce){.tdot{animation:none}}';
+    document.head.appendChild(st);
+  })();
+  const tick = m => m.read ? `<span class="text-sky-400 font-semibold">✓✓ ${tx('পড়েছে', 'Read')}</span>` : m.delivered ? `<span>✓✓ ${tx('ডেলিভারড', 'Delivered')}</span>` : `<span>✓ ${tx('পাঠানো হয়েছে', 'Sent')}</span>`;
+  function beat(on = true) { const me = get().me; if (me) setDoc(doc(db, 'presence', me), { online: on, ts: serverTimestamp() }).catch(() => {}); }
+  function startPresence() { clearInterval(hb); beat(); hb = setInterval(() => { if (document.visibilityState === 'visible') beat(); }, 25000); }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { beat(); chatList(); } });
+  addEventListener('pagehide', () => beat(false));
+  function presenceText() {
+    if (peerTyping) return { t: tx('টাইপ করছে…', 'typing…'), on: true };
+    const p = peerPresence, ms = p && p.ts && p.ts.toMillis ? p.ts.toMillis() : 0;
+    if (ms && p.online !== false && Date.now() - ms < 65000) return { t: tx('অ্যাক্টিভ আছে', 'Active now'), on: true };
+    if (ms) return { t: tx('শেষবার ', 'Last seen ') + ago(ms), on: false };
+    return { t: tx('অফলাইন', 'Offline'), on: false };
+  }
+  function drawPresence() {
+    const el = $('peer-status'); if (!el) return; const s = presenceText();
+    el.className = 'text-[11px] ' + (s.on ? 'text-emerald-400' : 'text-mut');
+    el.innerHTML = `<span class="inline-block w-2 h-2 rounded-full mr-1 ${s.on ? 'bg-emerald-400' : 'bg-slate-500'}"></span>${s.t}`;
+  }
+  function setTyping(on) {
+    peerTyping = on; drawPresence(); const el = $('chat-list') || $('pg-msgs'); if (!el) return;
+    let t = $('typing-ind'); if (!on) { t && t.remove(); return; }
+    if (!t) { t = document.createElement('div'); t.id = 'typing-ind'; t.className = 'flex'; t.innerHTML = '<div class="rounded-2xl px-3 py-2.5 bg-slate-500/15 flex items-center gap-1" aria-label="typing"><span class="tdot"></span><span class="tdot"></span><span class="tdot"></span></div>'; }
+    el.appendChild(t); el.scrollTop = el.scrollHeight;
+  }
+  function unwatchPeer() { peerUnsubs.forEach(u => u()); peerUnsubs = []; clearInterval(peerTick); clearTimeout(tyExp); peerTyping = false; peerPresence = null; }
+  function watchPeer(uid) {
+    unwatchPeer(); const me = get().me; if (!uid || !me) return;
+    peerUnsubs.push(onSnapshot(doc(db, 'typing', uid + '_' + me), sn => {
+      const d = sn.data(), t = !!(d && d.typing && d.ts && d.ts.toMillis && Date.now() - d.ts.toMillis() < 7000);
+      clearTimeout(tyExp); setTyping(t); if (t) tyExp = setTimeout(() => setTyping(false), 6000);
+    }, () => {}));
+    peerUnsubs.push(onSnapshot(doc(db, 'presence', uid), sn => { peerPresence = sn.data() || null; drawPresence(); }, () => {}));
+    peerTick = setInterval(drawPresence, 20000);
+  }
+  function typingPing(on) {
+    const to = chatUid, me = get().me; if (!to || !me) return; clearTimeout(typTm);
+    if (!on) { if (lastTyping) { lastTyping = 0; setDoc(doc(db, 'typing', me + '_' + to), { from: me, to, typing: false, ts: serverTimestamp() }).catch(() => {}); } return; }
+    if (!lastTyping || Date.now() - lastTyping > 2500) { lastTyping = Date.now(); setDoc(doc(db, 'typing', me + '_' + to), { from: me, to, typing: true, ts: serverTimestamp() }).catch(() => {}); }
+    typTm = setTimeout(() => typingPing(false), 4000);
+  }
+  document.addEventListener('input', e => { if (e.target.id === 'chat-in' || e.target.id === 'pg-in') typingPing(!!e.target.value.trim()); });
 
   return {
     onRender(all) { last = all; insights(); banner(); sync(); findBtn(); inboxBtn(); gsearchInit(); adminBtn(); if (!routed) { routed = true; route(); } if (!once) { once = true; remind(); tour(); } },
