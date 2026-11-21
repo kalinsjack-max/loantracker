@@ -93,7 +93,7 @@ export function initExtras(c) {
     if (subUid !== me) { unsub && unsub(); unsubSt && unsubSt(); subUid = me; msgs = []; myStatus = 'active'; myReason = ''; isAdmin = false; { const c0 = $('adm-console'); c0 && c0.remove(); } watchMe(me); startPresence();
       msgReady = false;
       unsub = onSnapshot(query(collection(db, 'messages'), where('participants', 'array-contains', me)), snap => {
-        if (msgReady) snap.docChanges().forEach(c => { if (c.type === 'added') { const m = c.doc.data(); if (m.to === me && !m.read) incoming(m); } });
+        if (msgReady) snap.docChanges().forEach(c => { if (c.type === 'added') { const m = c.doc.data(); if (m.to === me && !m.read) { playSound('msg'); incoming(m); } } });
         snap.docs.forEach(d => { const m = d.data(); if (m.to === me && !m.delivered) updateDoc(d.ref, { delivered: true, deliveredAt: Date.now() }).catch(() => {}); });
         msgReady = true; msgs = snap.docs.map(d => ({ id: d.id, ...d.data() })); chatList(); drawInbox(); badge();
       }, () => {}); }
@@ -382,7 +382,7 @@ export function initExtras(c) {
     if (a === 'logout') { const w = $('ban-wall'), c1 = $('adm-console'); w && w.remove(); c1 && c1.remove(); isAdmin = false; return; }
     try {
       if (a === 'report') reportForm(d.uid); else if (a === 'reportsend') await reportSend(d.uid); else if (a === 'admin') adminPanel(); else if (a === 'admtab') await admTab(d.v);
-      else if (a === 'admset') await admSet(d.uid, d.v, d.rid); else if (a === 'admdismiss') await admDismiss(d.rid); else if (a === 'admentries') await admUser(d.uid); else if (a === 'admdel') await admDelete(d.uid); else if (a === 'admadd') await admAdd(); else if (a === 'admeditE') await admEditEntry(d.id, d.uid); else if (a === 'admdelE') await admDelEntry(d.id, d.uid); else if (a === 'admmsgs') await admMsgs(d.uid); else if (a === 'admdelM') await admDelMsg(d.id, d.uid); else if (a === 'admedit') await admEditUser(d.uid); else if (a === 'newmsg') findPeople('chat'); else if (a === 'admfilter') { admFilter = d.v; document.querySelectorAll('[data-act="admfilter"]').forEach(x => x.classList.toggle('on', x.dataset.v === admFilter)); drawUsers(); }
+      else if (a === 'admset') await admSet(d.uid, d.v, d.rid); else if (a === 'admdismiss') await admDismiss(d.rid); else if (a === 'admentries') await admUser(d.uid); else if (a === 'admdel') await admDelete(d.uid); else if (a === 'admadd') await admAdd(); else if (a === 'admeditE') await admEditEntry(d.id, d.uid); else if (a === 'admdelE') await admDelEntry(d.id, d.uid); else if (a === 'admmsgs') await admMsgs(d.uid); else if (a === 'admdelM') await admDelMsg(d.id, d.uid); else if (a === 'admedit') await admEditUser(d.uid); else if (a === 'newmsg') findPeople('chat'); else if (a === 'snd') toggleSound(b); else if (a === 'admfilter') { admFilter = d.v; document.querySelectorAll('[data-act="admfilter"]').forEach(x => x.classList.toggle('on', x.dataset.v === admFilter)); drawUsers(); }
     } catch (err) { toast(err.message || 'Error', 'err'); }
   });
 
@@ -392,8 +392,8 @@ export function initExtras(c) {
   const MODALS = { notifications: 'notifs', tools: 'tools', profile: 'profile' };
   (function pgCss() {
     if ($('pg-css')) return; const st = document.createElement('style'); st.id = 'pg-css';
-    st.textContent = 'body.pg-on #app>*:not(header):not(#pg){display:none!important}#fp-btn{display:none!important}.pg-act{background:rgba(52,211,153,.2)!important;border-color:rgba(52,211,153,.6)!important}'
-      + '#modal.as-page{top:var(--hdr,96px);background:transparent;-webkit-backdrop-filter:none;backdrop-filter:none;align-items:flex-start;padding:0 1rem 2rem;overflow-y:auto;z-index:9}#modal.as-page #modal-box{max-width:56rem;max-height:none;overflow:visible}';
+    st.textContent = 'body.pg-on #app{z-index:auto!important}body.pg-on #app>*:not(header):not(#pg){display:none!important}#fp-btn{display:none!important}.pg-act{background:rgba(52,211,153,.2)!important;border-color:rgba(52,211,153,.6)!important}'
+      + '#modal.as-page{top:var(--hdr,96px);background:transparent;-webkit-backdrop-filter:none;backdrop-filter:none;align-items:flex-start;padding:0 1rem 2rem;overflow-y:auto;z-index:20}#modal.as-page #modal-box{max-width:56rem;max-height:none;overflow:visible}';
     document.head.appendChild(st);
   })();
   const SEARCH_SVG = '<svg class="w-4 h-4 text-mut shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>';
@@ -528,10 +528,27 @@ export function initExtras(c) {
   }
   document.addEventListener('input', e => { if (e.target.id === 'chat-in' || e.target.id === 'pg-in') typingPing(!!e.target.value.trim()); });
 
+
+  /* ---------- notification & message sounds (generated with WebAudio, no files) ---------- */
+  let ac = null;
+  const sndOn = () => localStorage.getItem('haulat_sound') !== 'off';
+  const sndLabel = () => `${sndOn() ? '🔊' : '🔇'} ${tx('নোটিফিকেশন সাউন্ড: ', 'Notification sound: ')}<b>${sndOn() ? tx('চালু', 'On') : tx('বন্ধ', 'Off')}</b>`;
+  const unlockAudio = () => { try { ac = ac || new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); } catch { /* no audio */ } };
+  ['click', 'keydown', 'touchstart'].forEach(ev => addEventListener(ev, unlockAudio, { passive: true }));
+  function playSound(kind) {
+    if (!sndOn()) return; unlockAudio(); if (!ac || ac.state !== 'running') return;
+    const seq = kind === 'msg' ? [[880, 0, .09], [1175, .1, .14]] : [[660, 0, .12], [880, .13, .12], [1320, .26, .24]], t0 = ac.currentTime;
+    seq.forEach(([f, d, l]) => { const o = ac.createOscillator(), g = ac.createGain(); o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t0 + d); g.gain.exponentialRampToValueAtTime(.2, t0 + d + .02); g.gain.exponentialRampToValueAtTime(.0001, t0 + d + l);
+      o.connect(g); g.connect(ac.destination); o.start(t0 + d); o.stop(t0 + d + l + .05); });
+  }
+  function toggleSound(btn) { localStorage.setItem('haulat_sound', sndOn() ? 'off' : 'on'); if (btn) btn.innerHTML = sndLabel(); if (sndOn()) playSound('notif'); }
+
   return {
     onRender(all) { last = all; insights(); banner(); sync(); findBtn(); inboxBtn(); gsearchInit(); adminBtn(); if (!routed) { routed = true; route(); } if (!once) { once = true; remind(); tour(); } },
     selBtn(u) { try { let b = $('sel-prof'); if (!u) { b && b.remove(); return; } if (!b) { b = document.createElement('button'); b.id = 'sel-prof'; b.type = 'button'; b.dataset.act = 'viewp'; b.className = 'ghost sm mt-1.5'; $('sel-note').after(b); } b.dataset.uid = u.uid; b.textContent = '👤 ' + tx('প্রোফাইল ও রেকর্ড দেখুন', 'View profile & record'); } catch {} },
-    toolsHtml: () => `<button data-act="people" class="ghost w-full !justify-start py-3">🔎 ${tx('মানুষ খুঁজুন (প্রোফাইল)', 'Find people (profiles)')}</button><button data-act="inbox" class="ghost w-full !justify-start py-3">💬 ${tx('মেসেজ', 'Messages')}</button><button data-act="stmt" class="ghost w-full !justify-start py-3">🧾 ${tx('স্টেটমেন্ট (PDF/প্রিন্ট)', 'Statement (PDF / Print)')}</button><button data-act="json" class="ghost w-full !justify-start py-3">💾 ${tx('আমার ডেটা ডাউনলোড (JSON)', 'Download my data (JSON)')}</button><button data-act="notifperm" class="ghost w-full !justify-start py-3">🔔 ${tx('ব্রাউজার রিমাইন্ডার চালু করুন', 'Enable browser reminders')}</button><button data-act="tour" class="ghost w-full !justify-start py-3">❓ ${tx('গাইড দেখুন', 'Show guide')}</button>`,
+    sound: playSound,
+    toolsHtml: () => `<button data-act="snd" class="ghost w-full !justify-start py-3">${sndLabel()}</button><button data-act="people" class="ghost w-full !justify-start py-3">🔎 ${tx('মানুষ খুঁজুন (প্রোফাইল)', 'Find people (profiles)')}</button><button data-act="inbox" class="ghost w-full !justify-start py-3">💬 ${tx('মেসেজ', 'Messages')}</button><button data-act="stmt" class="ghost w-full !justify-start py-3">🧾 ${tx('স্টেটমেন্ট (PDF/প্রিন্ট)', 'Statement (PDF / Print)')}</button><button data-act="json" class="ghost w-full !justify-start py-3">💾 ${tx('আমার ডেটা ডাউনলোড (JSON)', 'Download my data (JSON)')}</button><button data-act="notifperm" class="ghost w-full !justify-start py-3">🔔 ${tx('ব্রাউজার রিমাইন্ডার চালু করুন', 'Enable browser reminders')}</button><button data-act="tour" class="ghost w-full !justify-start py-3">❓ ${tx('গাইড দেখুন', 'Show guide')}</button>`,
     profileTop() {
       const u = auth.currentUser, s = stats(), p = get().profile, since = u.metadata.creationTime ? new Date(u.metadata.creationTime).toLocaleDateString(getLang() === 'bn' ? 'bn-BD' : 'en-GB', { month: 'long', year: 'numeric' }) : '—';
       const cell = (v, l) => `<div class="glass rounded-2xl p-2.5 text-center"><div class="font-extrabold mono">${v}</div><div class="text-[10px] text-mut">${l}</div></div>`;

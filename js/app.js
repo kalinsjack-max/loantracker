@@ -170,7 +170,7 @@ async function startApp() {
     loading = false; render(); if (modalKind === 'notifs') showNotifs();
   }, e => { loading = false; render(); toast(t('loadErr') + ': ' + e.message, 'err'); }));
   unsubs.push(onSnapshot(query(collection(db, 'notifications'), where('toUid', '==', me)), async s => {
-    if (notesLoaded) s.docChanges().forEach(c => { if (c.type === 'added') toast('🔔 ' + nText({ id: c.doc.id, ...c.doc.data() }), 'info'); });
+    if (notesLoaded) s.docChanges().forEach(c => { if (c.type === 'added') { toast('🔔 ' + nText({ id: c.doc.id, ...c.doc.data() }), 'info'); X.sound?.('notif'); } });
     notesLoaded = true;
     notes = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => b.createdAt - a.createdAt);
     await loadPeople(notes.map(n => n.fromUid));
