@@ -194,7 +194,8 @@ const canEditE = v => !v.puid ? v.mine : v.status !== 'accepted' ? v.mine : v.di
 const canRespondItem = (v, l) => l.status === 'pending' && l.uid !== me && (l.k === 'topup' ? v.dir === 'borrowed' : v.dir === 'lent');
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const notify = (toUid, entryId, kind, data) => toUid && addDoc(collection(db, 'notifications'), {
-  toUid, fromUid: me, entryId, kind, read: false, createdAt: Date.now(), data: { name: profile.name, username: profile.username, ...data } });
+  toUid, fromUid: me, entryId, kind, read: false, createdAt: Date.now(), data: { name: profile.name, username: profile.username, ...data } })
+  .then(r => { X.push?.('notif', r.id); return r; });
 function nText(n) {
   const d = n.data || {}, w = `${d.name} (@${d.username})`, a = money(d.amount || 0);
   switch (n.kind) {

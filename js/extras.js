@@ -154,7 +154,7 @@ export function initExtras(c) {
   }
   async function sendMsg(uid) {
     const inp = $('chat-in') || $('pg-in'), text = inp ? inp.value.trim() : ''; if (!text || !uid) return; const me = get().me; inp.value = ''; typingPing(false);
-    try { await addDoc(collection(db, 'messages'), { participants: [me, uid], from: me, to: uid, text: text.slice(0, 500), ts: Date.now(), read: false, delivered: false }); }
+    try { await addDoc(collection(db, 'messages'), { participants: [me, uid], from: me, to: uid, text: text.slice(0, 500), ts: Date.now(), read: false, delivered: false }).then(r => pushOut('chat', r.id)); }
     catch { inp.value = text; toast(tx('মেসেজ পাঠানো যায়নি', 'Could not send message'), 'info'); }
   }
   const baseTitle = document.title.replace(/^\(\d+\) /, '');
@@ -533,6 +533,15 @@ export function initExtras(c) {
   document.addEventListener('input', e => { if (e.target.id === 'chat-in' || e.target.id === 'pg-in') typingPing(!!e.target.value.trim()); });
 
 
+  /* ---------- real phone push through /api/push (Vercel) ---------- */
+  async function pushOut(kind, id) {
+    try {
+      const u = auth.currentUser; if (!u) return;
+      const idToken = await u.getIdToken();
+      fetch('/api/push', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken, kind, id }), keepalive: true }).catch(() => {});
+    } catch { /* ignore */ }
+  }
+
   /* ---------- notification & message sounds (generated with WebAudio, no files) ---------- */
   let ac = null;
   const sndOn = () => localStorage.getItem('haulat_sound') !== 'off';
@@ -552,6 +561,7 @@ export function initExtras(c) {
     onRender(all) { last = all; insights(); banner(); sync(); findBtn(); inboxBtn(); gsearchInit(); adminBtn(); if (!routed) { routed = true; route(); } if (!once) { once = true; remind(); tour(); } },
     selBtn(u) { try { let b = $('sel-prof'); if (!u) { b && b.remove(); return; } if (!b) { b = document.createElement('button'); b.id = 'sel-prof'; b.type = 'button'; b.dataset.act = 'viewp'; b.className = 'ghost sm mt-1.5'; $('sel-note').after(b); } b.dataset.uid = u.uid; b.textContent = '👤 ' + tx('প্রোফাইল ও রেকর্ড দেখুন', 'View profile & record'); } catch {} },
     sound: playSound,
+    push: pushOut,
     toolsHtml: () => `<button data-act="snd" class="ghost w-full !justify-start py-3">${sndLabel()}</button><button data-act="people" class="ghost w-full !justify-start py-3">🔎 ${tx('মানুষ খুঁজুন (প্রোফাইল)', 'Find people (profiles)')}</button><button data-act="inbox" class="ghost w-full !justify-start py-3">💬 ${tx('মেসেজ', 'Messages')}</button><button data-act="stmt" class="ghost w-full !justify-start py-3">🧾 ${tx('স্টেটমেন্ট (PDF/প্রিন্ট)', 'Statement (PDF / Print)')}</button><button data-act="json" class="ghost w-full !justify-start py-3">💾 ${tx('আমার ডেটা ডাউনলোড (JSON)', 'Download my data (JSON)')}</button><button data-act="notifperm" class="ghost w-full !justify-start py-3">🔔 ${tx('ব্রাউজার রিমাইন্ডার চালু করুন', 'Enable browser reminders')}</button><button data-act="tour" class="ghost w-full !justify-start py-3">❓ ${tx('গাইড দেখুন', 'Show guide')}</button>`,
     profileTop() {
       const u = auth.currentUser, s = stats(), p = get().profile, since = u.metadata.creationTime ? new Date(u.metadata.creationTime).toLocaleDateString(getLang() === 'bn' ? 'bn-BD' : 'en-GB', { month: 'long', year: 'numeric' }) : '—';
